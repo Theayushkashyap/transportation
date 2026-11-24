@@ -2,257 +2,203 @@
 
 import { useState } from "react"
 import Image from "next/image"
-import { ShieldCheck, Weight, Box, Wallet, CalendarDays, MapPin, Truck, ArrowDown } from "lucide-react"
+import Link from "next/link"
+import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Map as MapIcon, Search, ShieldCheck, X } from "lucide-react"
 import { toast } from "sonner"
 import { useStore } from "@/lib/store"
-import { Delivery, fmtHour, inr, SHIPPING_POINTS, VEHICLE_TYPES, type VehicleTypeName } from "@/lib/data"
-import { VEHICLE_PHOTO } from "@/lib/tracking"
-import { VehiclePhoto } from "@/components/app/vehicle-photo"
+import { fmtHour, formatPlanDate, inr, SHIPPING_POINTS, VEHICLE_TYPES, type VehicleTypeName } from "@/lib/data"
 import { validateDelivery } from "@/lib/optimizer"
-import { Tag } from "@/components/app/bits"
+import { DispatchMap } from "@/components/app/dispatch-map"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+
+type Stage = "Planned" | "Partial" | "Unplanned" | "Blocked" | "Excluded"
+const stages = ["All", "Planned", "Partial", "Unplanned", "Blocked", "Excluded"] as const
+type Filter = typeof stages[number]
+const stageStyles: Record<Stage, string> = {
+  Planned: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100",
+  Partial: "bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-100",
+  Unplanned: "bg-amber-100 text-amber-950 dark:bg-amber-900 dark:text-amber-100",
+  Blocked: "bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100",
+  Excluded: "bg-muted text-muted-foreground",
+}
+const kg = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 1 }) + " kg"
+
+function Status({ stage }: { stage: Stage }) {
+  return <span className={"inline-flex shrink-0 rounded px-2 py-1 text-[11px] font-semibold " + stageStyles[stage]}>{stage === "Partial" ? "Partially planned" : stage}</span>
+}
+
+// A neutral side-profile illustration, not a photograph or a loading diagram.
+function TruckProfile({ type }: { type?: VehicleTypeName }) {
+  const small = type === "Ace 1T" || type === "LCV 3T"
+  return (
+    <svg viewBox="0 0 250 112" aria-hidden="true" className="h-full w-full">
+      <ellipse cx="129" cy="98" rx="111" ry="5" fill="#94a3b8" opacity=".18" />
+      <path d={small ? "M77 31H234V84H77Z" : "M86 11H239V83H86Z"} fill="#f7f7f7" stroke="#a9afb2" strokeWidth="1.4" />
+      <path d={small ? "M82 36H229V78H82Z" : "M91 17H233V77H91Z"} fill="#e8ebed" stroke="#c7cbce" />
+      <path d="M22 82H243V90H22Z" fill="#343b40" />
+      <path d={small ? "M12 78L16 62 32 57 49 35H77V84H12Z" : "M12 83V62L26 57 35 24H80V85H12Z"} fill="#fff" stroke="#a9afb2" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d={small ? "M34 55L50 39H69V55Z" : "M31 53L40 29H71V53Z"} fill="#91a4af" stroke="#647783" />
+      <path d="M69 58H76M22 69H14M47 61H71V79" stroke="#92999d" fill="none" strokeWidth="1.4" />
+      <rect x="11" y="74" width="10" height="5" rx="1" fill="#d6b876" />
+      <rect x="12" y="82" width="23" height="5" rx="1" fill="#676f73" />
+      {[48, small ? 205 : 193, ...(!small && type === "MCV 16T" ? [218] : [])].map(x => (
+        <g key={x}><circle cx={x} cy="87" r="13" fill="#25292c" /><circle cx={x} cy="87" r="7" fill="#aeb6ba" /><circle cx={x} cy="87" r="3" fill="#5d666d" /></g>
+      ))}
+    </svg>
+  )
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div className="min-w-0"><div className="mb-1 text-xs text-muted-foreground">{label}</div><div className="break-words text-sm font-medium leading-snug">{children}</div></div>
+}
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+  return <section className="min-w-0 rounded-md border bg-card p-4"><h3 className="mb-4 text-sm font-semibold">{title}</h3>{children}</section>
+}
+
+const PAGE_SIZE = 6
 
 export default function Deliveries() {
-  const { deliveries, customers, params, exceptions, grantException, plan } = useStore()
+  const { deliveries, customers, params, exceptions, grantException, plan, ctx, status } = useStore()
   const [q, setQ] = useState("")
   const [sp, setSp] = useState("all")
-  const [sel, setSel] = useState<Delivery | null>(null)
-  const cust = (id: string) => customers.find((c) => c.id === id)!
-  const counts = { Eligible: 0, Blocked: 0, Excluded: 0 }
-  deliveries.forEach((d) => counts[validateDelivery(d, cust(d.customerId), params, exceptions).state]++)
-  const sd = sel && { c: cust(sel.customerId), v: validateDelivery(sel, cust(sel.customerId), params, exceptions) }
-  const plannedIn = (id: string) => plan?.trips.filter((t) => t.stops.some((s) => s.deliveryId === id)).map((t) => t.id)
+  const [stateF, setStateF] = useState("all")
+  const [filter, setFilter] = useState<Filter>("All")
+  const [selectedId, setSelectedId] = useState<string | null | undefined>(undefined)
+  const [page, setPage] = useState(0)
+  const [mapOpen, setMapOpen] = useState(false)
+  const [tripId, setTripId] = useState<string | null>(null)
 
-  const [tab, setTab] = useState<"all" | "Eligible" | "Blocked" | "Excluded">("all")
-  const [stateF, setStateF] = useState("")
-  const [focusId, setFocusId] = useState<string | null>(null)
-  const all = deliveries.map((d) => ({ d, c: cust(d.customerId), v: validateDelivery(d, cust(d.customerId), params, exceptions) }))
-  const list = all.filter((r) => (sp === "all" || r.d.shippingPoint === sp) && (stateF === "" || r.c.state === stateF) && (q === "" || (r.d.id + r.c.name + r.c.city).toLowerCase().includes(q.toLowerCase())))
-  const tableRows = list.filter((r) => tab === "all" || r.v.state === tab)
-  const focus = all.find((r) => r.d.id === focusId) ?? tableRows[0] ?? all[0]
-  const byState = Object.entries(all.reduce<Record<string, number>>((m, r) => ((m[r.c.state] = (m[r.c.state] ?? 0) + 1), m), {})).sort((x, y) => y[1] - x[1])
-  const maxState = byState[0]?.[1] ?? 1
-  const eligiblePct = all.length ? Math.round((counts.Eligible / all.length) * 100) : 0
-  const maxKg = Math.max(...all.map((r) => r.d.weightKg), 1)
-  const fit = (d: Delivery): VehicleTypeName => (Object.values(VEHICLE_TYPES).find((t) => t.usableKg >= d.weightKg && t.volM3 >= d.volumeM3) ?? VEHICLE_TYPES["MCV 16T"]).name
-  const open = (r: (typeof all)[number]) => { setFocusId(r.d.id); setSel(r.d) }
-
-  const hero = (() => {
-    if (!focus) return null
-    const { d, c, v } = focus
-    const vt = VEHICLE_TYPES[fit(d)]
-    const wPct = Math.min(1, d.weightKg / vt.usableKg)
-    const vPct = Math.min(1, d.volumeM3 / vt.volM3)
-    const origin = SHIPPING_POINTS.find((p) => p.id === d.shippingPoint)
-    const pts = d.items.reduce<number[]>((a, i) => [...a, (a.at(-1) ?? 0) + i.weightKg], [])
-    const series = pts.length > 1 ? pts : [0, pts[0] ?? 0]
-    const top = Math.max(...series, 1)
-    const xy = series.map((y, i) => [(i / (series.length - 1)) * 200, 54 - (y / top) * 44] as const)
-    const line = xy.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`).join(" ")
-    return { d, c, v, vt, wPct, vPct, origin, line, area: `${line} L200 60 L0 60 Z`, last: xy[xy.length - 1] }
-  })()
+  const all = deliveries.map(d => {
+    const c = customers.find(c => c.id === d.customerId)!
+    const validation = validateDelivery(d, c, params, exceptions)
+    const allocations = (plan?.trips ?? []).flatMap(t => t.stops.flatMap((stop, index) => stop.deliveryId === d.id ? [{ t, stop, index, vehicle: ctx.vehicles[t.vehicleId] }] : []))
+    const allocatedKg = allocations.reduce((n, a) => n + a.stop.weightKg, 0)
+    const stage: Stage = validation.state === "Excluded" ? "Excluded" : validation.state === "Blocked" ? "Blocked" : allocatedKg >= d.weightKg && allocations.length ? "Planned" : allocations.length ? "Partial" : "Unplanned"
+    return { d, c, validation, allocations, allocatedKg, stage }
+  })
+  const scoped = all.filter(r => (sp === "all" || r.d.shippingPoint === sp) && (stateF === "all" || r.c.state === stateF) && (r.d.id + " " + r.d.salesOrder + " " + r.c.name + " " + r.c.city + " " + r.c.state + " " + r.stage + " " + r.allocations.map(a => a.vehicle?.reg ?? "").join(" ")).toLowerCase().includes(q.trim().toLowerCase()))
+  const counts = Object.fromEntries(stages.map(k => [k, k === "All" ? scoped.length : scoped.filter(r => r.stage === k).length])) as Record<Filter, number>
+  const rows = scoped.filter(r => filter === "All" || r.stage === filter)
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
+  const activePage = Math.min(page, pages - 1)
+  const visible = rows.slice(activePage * PAGE_SIZE, (activePage + 1) * PAGE_SIZE)
+  const selected = selectedId === null ? undefined : visible.find(r => r.d.id === selectedId) ?? (selectedId === undefined ? visible.find(r => r.stage === "Planned") : undefined) ?? visible[0]
+  const allocation = selected?.allocations.find(a => a.t.id === tripId) ?? selected?.allocations[0]
+  const vehicle = allocation?.vehicle
+  const trip = allocation?.t
+  const cap = vehicle ? VEHICLE_TYPES[vehicle.type] : undefined
+  const routeCustomers = trip?.stops.map(s => ctx.customers[ctx.deliveries[s.deliveryId].customerId]) ?? []
+  const selectDelivery = (id: string) => { setSelectedId(id); setTripId(null); setMapOpen(false); if (window.innerWidth < 1280) requestAnimationFrame(() => document.getElementById("shipment-details")?.scrollIntoView({ block: "start", behavior: "smooth" })) }
+  const resetSelection = () => { setSelectedId(undefined); setTripId(null); setMapOpen(false); setPage(0) }
 
   return (
-    <div className="dlv">
-      <div className="dlv-title">
-        <div><h1>Deliveries</h1><p>Outbound deliveries with eligibility checks for planning.</p></div>
-        <span className="dlv-muted">{counts.Eligible} eligible · {counts.Blocked} blocked · {counts.Excluded} excluded</span>
-      </div>
-
-      {hero && (
-        <section className="dlv-hero" aria-label="Selected delivery">
-          <div className="dlv-left">
-            <div className="dlv-card">
-              <div className="dlv-id"><h2>#{hero.d.id}</h2><span className="dlv-pill" data-s={hero.v.state}>{hero.v.state}</span></div>
-              <div className="dlv-stats"><span>{(hero.d.weightKg / 1000).toFixed(2)} T</span><span>{hero.d.items.length} items</span><span>Due {hero.d.deliveryDate.slice(5)}</span></div>
-              <div className="dlv-progress" role="img" aria-label={`${Math.round(hero.wPct * 100)}% of ${hero.vt.name} usable weight`}><i style={{ width: `${hero.wPct * 100}%` }} /></div>
-              <div className="dlv-route">
-                <div><i />{hero.origin?.name ?? hero.d.shippingPoint}, {hero.origin?.state}</div>
-                <div><i />{hero.c.name}, {hero.c.city}</div>
-              </div>
-            </div>
-            <div className="dlv-card">
-              <div className="dlv-perf"><span style={{ fontSize: "1rem" }}>Eligibility</span><span className="dlv-muted">{all.length} deliveries</span></div>
-              <div className="dlv-bars" role="img" aria-label={`${eligiblePct}% of deliveries eligible`}>
-                {all.map((r) => <i key={r.d.id} data-s={r.v.state} data-on={r.d.id === hero.d.id} style={{ height: `${25 + (r.d.weightKg / maxKg) * 75}%` }} />)}
-              </div>
-              <div className="dlv-perf" style={{ marginTop: ".5rem" }}><span className="dlv-muted">Bar height = weight</span><strong>{eligiblePct}%</strong></div>
-            </div>
-            <div className="dlv-card dlv-contact">
-              <span className="dlv-avatar" aria-hidden="true">{hero.c.name.slice(0, 1)}</span>
-              <div className="min-w-0"><b className="truncate">{hero.c.name}</b><span className="dlv-muted">{hero.c.category} · {hero.c.window}</span></div>
-            </div>
+    <div className="min-w-0 overflow-hidden rounded-lg border bg-card">
+      <div className="grid min-w-0 xl:h-[calc(100dvh-3.25rem)] xl:grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)] xl:overflow-hidden">
+        <section aria-label="Deliveries" className="min-w-0 bg-muted/40 xl:min-h-0 xl:overflow-y-auto xl:border-r">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card px-5 py-5">
+            <div><h1 className="text-3xl font-semibold tracking-tight">Deliveries</h1><p className="mt-1 text-[11px] text-muted-foreground">Outbound shipments · Prototype data</p></div>
+            <div className="relative min-w-0 flex-1 sm:min-w-44"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><input aria-label="Search deliveries" value={q} onChange={e => {setQ(e.target.value);resetSelection()}} placeholder="Search ID, customer, city…" className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none focus:border-primary" /></div>
+          </header>
+          <nav aria-label="Shipment status filters" className="flex min-w-0 gap-4 overflow-x-auto border-b px-5">
+            {stages.map(k => <button type="button" key={k} aria-pressed={filter === k} onClick={() => {setFilter(k);resetSelection()}} className={"flex shrink-0 items-center gap-1.5 border-b-2 py-3.5 text-sm " + (filter === k ? "border-foreground font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")} >{k}<span className="rounded bg-background px-1.5 py-0.5 text-[10px] tabular-nums">{counts[k]}</span></button>)}
+          </nav>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-4">
+            <select aria-label="Shipping point" value={sp} onChange={e => {setSp(e.target.value);resetSelection()}} className="max-w-full rounded border bg-card px-3 py-2 text-xs"><option value="all">All shipping points</option>{SHIPPING_POINTS.map(p => <option key={p.id} value={p.id}>{p.id} · {p.name}</option>)}</select>
+            <select aria-label="Destination state" value={stateF} onChange={e => {setStateF(e.target.value);resetSelection()}} className="max-w-full rounded border bg-card px-3 py-2 text-xs"><option value="all">All destination states</option>{Array.from(new Set(customers.map(c => c.state))).sort().map(state => <option key={state} value={state}>{state}</option>)}</select>
+            <span className="text-xs text-muted-foreground">{rows.length} deliveries</span>
           </div>
-
-          <div className="dlv-stage">
-            <Image src={VEHICLE_PHOTO[hero.vt.name].src} alt={`${VEHICLE_PHOTO[hero.vt.name].model} ${hero.vt.name}`} fill sizes="(min-width:1024px) 40vw, 100vw" priority />
-            <div className="dlv-stage-cap"><div><span style={{ opacity: .75 }}>Best-fit vehicle</span><strong>{hero.vt.name} · {VEHICLE_PHOTO[hero.vt.name].model}</strong></div><span>{hero.vt.usableKg / 1000}T usable · {hero.vt.volM3} m³</span></div>
-          </div>
-
-          <div className="dlv-right">
-            <div className="dlv-card dlv-tile-green">
-              <Weight className="icon" size={30} aria-hidden="true" />
-              <strong>{(hero.d.weightKg / 1000).toFixed(1)}/{hero.vt.usableKg / 1000}T</strong>
-              <span>{(hero.wPct * 100).toFixed(1)}%</span>
-            </div>
-            <div className="dlv-card dlv-gauge">
-              <div style={{ fontSize: "1rem", textAlign: "left" }}>Volume load</div>
-              <svg viewBox="0 0 200 110" aria-hidden="true">
-                <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="#f6e3bd" strokeWidth="14" strokeLinecap="round" pathLength="100" />
-                <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="#f2b560" strokeWidth="14" strokeLinecap="round" pathLength="100" strokeDasharray={`${Math.max(hero.vPct * 100, 1)} 100`} />
-              </svg>
-              <b>{hero.d.volumeM3.toFixed(1)} m³</b>
-              <small>{Math.round(hero.vPct * 100)}% of {hero.vt.volM3} m³</small>
-            </div>
-            <div className="dlv-card dlv-value">
-              <h3>Order value</h3>
-              <strong>{inr(hero.d.value)}</strong>
-              <svg viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
-                <path d={hero.area} fill="#a78bfa33" />
-                <path d={hero.line} fill="none" stroke="#a78bfa" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-              </svg>
-              <div className="dlv-muted">Cumulative weight across {hero.d.items.length} line items</div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      <div className="dlv-strip" role="group" aria-label="Deliveries">
-        {list.map((r) => (
-          <button key={r.d.id} type="button" className="dlv-chip" aria-pressed={focus?.d.id === r.d.id} onClick={() => setFocusId(r.d.id)}>
-            <i className="dlv-dot" data-s={r.v.state} />
-            <div><b>#{r.d.id}</b><small>{r.c.name}</small><small>{(r.d.weightKg / 1000).toFixed(2)} T · {r.d.volumeM3.toFixed(1)} m³</small></div>
-            <VehiclePhoto type={fit(r.d)} className="dlv-chip-img w-20" sizes="84px" />
-          </button>
-        ))}
-        {list.length === 0 && <div className="dlv-empty">No deliveries match these filters.</div>}
-      </div>
-
-      <div className="dlv-bottom">
-        <section className="dlv-card" aria-label="Distribution by state">
-          <div className="dlv-head"><h2>Distribution</h2>{stateF && <Button size="xs" variant="ghost" onClick={() => setStateF("")}>Clear</Button>}</div>
-          <div className="dlv-dist">
-            {byState.map(([name, n]) => (
-              <button key={name} type="button" aria-pressed={stateF === name} onClick={() => setStateF(stateF === name ? "" : name)}>
-                <span>{name}</span><span className="bar"><i style={{ width: `${(n / maxState) * 100}%` }} /></span><b>{n}</b>
-              </button>
-            ))}
-          </div>
-          <div className="dlv-sum">
-            <div><span className="dlv-muted">Total deliveries</span><b>{all.length}</b></div>
-            <div><span className="dlv-muted">Eligible</span><b>{eligiblePct}%</b></div>
-            <div><span className="dlv-muted">High priority</span><b>{all.filter((r) => r.d.priority === "High").length}</b></div>
-          </div>
-        </section>
-
-        <section className="dlv-card" aria-label="Orders">
-          <div className="dlv-head">
-            <h2>Orders<span className="dlv-count">{tableRows.length}</span></h2>
-            <div className="dlv-tabs">
-              {(["all", "Eligible", "Blocked", "Excluded"] as const).map((k) => (
-                <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(k)}>{k === "all" ? "All" : k}<em>{k === "all" ? list.length : list.filter((r) => r.v.state === k).length}</em></button>
-              ))}
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Input className="w-64" aria-label="Search deliveries" placeholder="Search delivery, customer, city…" value={q} onChange={(e) => setQ(e.target.value)} />
-            <Select items={{ all: "All shipping points", ...Object.fromEntries(SHIPPING_POINTS.map((s) => [s.id, `${s.id} · ${s.name}`])) }} value={sp} onValueChange={(v) => setSp(v ?? "all")}>
-              <SelectTrigger className="w-40"><SelectValue placeholder="Shipping point" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All shipping points</SelectItem>{SHIPPING_POINTS.map((s) => <SelectItem key={s.id} value={s.id}>{s.id} · {s.name}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div className="dlv-table">
-            <div className="dlv-cols" aria-hidden="true"><span>Delivery</span><span>Customer</span><span>Origin</span><span>Destination</span><span>Due</span><span>Appointment</span><span>Status</span></div>
-            {tableRows.map((r) => (
-              <button key={r.d.id} type="button" className="dlv-row" aria-current={focus?.d.id === r.d.id} aria-label={`Open delivery ${r.d.id}`} onClick={() => open(r)}>
-                <span className="id">{r.d.id}{r.d.modifiedAfterPlanning && <Tag tone="amber" className="ml-1.5">Changed</Tag>}</span>
-                <span className="min-w-0"><span className="block truncate">{r.c.name}</span><small>{r.c.category}</small></span>
-                <span>{r.d.shippingPoint}</span>
-                <span>{r.c.city}, {r.c.state}</span>
-                <span>{r.d.deliveryDate.slice(5)} {r.d.priority === "High" && <Tag tone="red">High</Tag>}</span>
-                <span>{r.d.appointment ? <>{r.d.appointment.date.slice(5)}<small>{r.d.appointment.status}</small></> : r.c.requiresAppointment ? <Tag tone="red">Missing</Tag> : <span className="text-muted-foreground">n/a</span>}</span>
-                <span><span className="dlv-pill" data-s={r.v.state}>{r.v.state === "Eligible" && exceptions.has(r.d.id) ? "Exception" : r.v.state}</span></span>
-              </button>
-            ))}
-            {tableRows.length === 0 && <div className="dlv-empty">No deliveries in this view.</div>}
-          </div>
-        </section>
-      </div>
-
-      <Sheet open={!!sel} onOpenChange={(o) => !o && setSel(null)}>
-        <SheetContent className="w-full !gap-0 overflow-hidden sm:!max-w-[680px]" overlayClassName="bg-black/20 !backdrop-blur-none">
-          {sel && sd && (
-            <>
-              <SheetHeader className="shrink-0 border-b px-6 py-5 pr-12"><div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Outbound delivery</div><SheetTitle className="mt-1 text-2xl font-semibold">Delivery {sel.id}</SheetTitle><SheetDescription>{sd.c.name} · SO {sel.salesOrder}</SheetDescription></SheetHeader>
-              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5 text-sm sm:px-6">
-                <div className="flex flex-wrap gap-2"><Tag tone={sd.v.state === "Eligible" ? "green" : sd.v.state === "Blocked" ? "red" : "gray"}>{sd.v.state}</Tag><Tag>SAP: {sel.sapStatus}</Tag><Tag>{sd.c.category}</Tag><Tag tone={sel.priority === "High" ? "red" : "gray"}>{sel.priority} priority</Tag></div>
-                {sel.note && <div className="rounded-lg bg-muted p-3 text-xs">{sel.note}</div>}
-                {sd.v.issues.length > 0 && (
-                  <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
-                    <div className="mb-1 font-medium">Why this delivery cannot be planned</div>
-                    <ul className="list-disc pl-4 text-xs">{sd.v.issues.map((i) => <li key={i}>{i}</li>)}</ul>
-                    {sd.v.state === "Blocked" && sd.c.requiresAppointment && sd.c.lat != null && (
-                      <Button size="sm" variant="outline" className="mt-3" onClick={() => { grantException(sel.id); toast.success("Exception granted", { description: "Recorded in session activity" }) }}><ShieldCheck /> Grant demo exception</Button>
-                    )}
+          <div className="grid min-w-0 grid-cols-1 gap-2.5 p-5 sm:grid-cols-2">
+            {visible.map(r => {
+              const a = r.allocations[0]
+              const active = selected?.d.id === r.d.id
+              return <button type="button" key={r.d.id} onClick={() => selectDelivery(r.d.id)} aria-pressed={active} className={"min-w-0 overflow-hidden rounded-md border bg-card text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 " + (active ? "border-foreground ring-1 ring-foreground" : "hover:border-muted-foreground/60")}>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3.5"><span className="text-lg font-semibold tracking-tight">#{r.d.id}</span><Status stage={r.stage} /></div>
+                <div className="relative min-h-40 p-4">
+                  <div className="mb-3 min-w-0"><div className="text-[11px] text-muted-foreground">Delivery destination</div><div className="truncate text-xs font-medium" title={r.c.name}>{r.c.name}</div><div className="truncate text-xs text-muted-foreground">{r.c.city}, {r.c.state}</div></div>
+                  <div className="relative z-10 w-[64%] space-y-2">
+                    <div><div className="text-[11px] text-muted-foreground">{a ? "Planned ETA" : "Requested date"}</div><div className="text-xs font-medium">{a ? fmtHour(a.t.etas[a.index]) : formatPlanDate(r.d.deliveryDate)}</div></div>
+                    <div><div className="text-[11px] text-muted-foreground">Assigned vehicle</div><div className="break-words text-xs font-medium">{a?.vehicle?.reg ?? "Not allocated"}</div></div>
                   </div>
-                )}
-                <section aria-label="Shipment summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  {[
-                    { label: "Total weight", value: `${(sel.weightKg / 1000).toFixed(2)} T`, Icon: Weight },
-                    { label: "Total volume", value: `${sel.volumeM3.toFixed(1)} m³`, Icon: Box },
-                    { label: "Order value", value: inr(sel.value), Icon: Wallet },
-                  ].map(({ label, value, Icon }) => (
-                    <div key={label} className="rounded-xl border bg-muted/30 p-3">
-                      <Icon className="mb-3 size-5 text-primary" aria-hidden="true" />
-                      <div className="text-xs text-muted-foreground">{label}</div>
-                      <div className="mt-1 break-words text-lg font-semibold tabular-nums">{value}</div>
-                    </div>
-                  ))}
-                </section>
-                <section className="rounded-xl border p-4">
-                  <h3 className="mb-4 font-semibold">Delivery journey</h3>
-                  <div className="flex items-start gap-3">
-                    <div className="flex flex-col items-center gap-1 text-primary"><Truck className="size-5" /><span className="h-6 border-l border-dashed border-muted-foreground/50" /><ArrowDown className="size-4" /><MapPin className="size-5" /></div>
-                    <div className="min-w-0 flex-1 space-y-5">
-                      <div><div className="text-xs text-muted-foreground">Ship from</div><div className="font-medium">{SHIPPING_POINTS.find(p => p.id === sel.shippingPoint)?.name ?? sel.shippingPoint}</div><div className="text-xs text-muted-foreground">{sel.shippingPoint}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Destination</div><div className="font-medium">{sd.c.city}, {sd.c.state}</div><div className="text-xs text-muted-foreground">{sd.c.lat != null && sd.c.lng != null ? `${sd.c.lat}, ${sd.c.lng}` : "Coordinates missing"}</div></div>
-                    </div>
-                  </div>
-                </section>
-                <section className="rounded-xl border p-4">
-                  <h3 className="mb-3 flex items-center gap-2 font-semibold"><CalendarDays className="size-4 text-primary" /> Delivery schedule</h3>
-                  <dl className="grid grid-cols-2 gap-3">
-                    <div><dt className="text-xs text-muted-foreground">Requested date</dt><dd className="mt-1 font-medium">{sel.deliveryDate}</dd></div>
-                    <div><dt className="text-xs text-muted-foreground">Appointment</dt><dd className="mt-1">{sel.appointment ? <Tag tone={sel.appointment.status === "Confirmed" ? "green" : "amber"}>{sel.appointment.status}</Tag> : sd.c.requiresAppointment ? <Tag tone="red">Missing</Tag> : "Not required"}</dd></div>
-                    {sel.appointment && <div className="col-span-2 rounded-lg bg-muted/40 p-3"><dt className="text-xs text-muted-foreground">Appointment window</dt><dd className="mt-1 font-medium">{sel.appointment.date} · {sel.appointment.start}–{sel.appointment.end}</dd></div>}
-                  </dl>
-                </section>
-                <section className="rounded-xl border p-4">
-                  <h3 className="mb-3 font-semibold">Planning constraints</h3>
-                  <div className="flex flex-wrap gap-2">
-                    <Tag tone={sel.splittable ? "green" : "gray"}>{sel.splittable ? "Splitting allowed" : "Do not split"}</Tag>
-                    {sd.c.ownVehicleOnly && <Tag tone="amber">Company vehicles only</Tag>}
-                    {sd.c.maxLengthFt && <Tag>Max {sd.c.maxLengthFt} ft</Tag>}
-                    {sd.c.allowedTypes && <Tag>Types: {sd.c.allowedTypes.join(", ")}</Tag>}
-                    {sd.c.unloading && <Tag>{sd.c.unloading}</Tag>}
-                  </div>
-                  <div className="mt-4 border-t pt-3"><div className="text-xs text-muted-foreground">Current trip allocation</div><div className="mt-1 font-medium">{plannedIn(sel.id)?.join(", ") || "Not allocated"}</div></div>
-                </section>
-                <div className="rounded-xl border p-4">
-                  <div className="mb-3 flex items-center justify-between font-semibold">Line items <span className="text-xs font-normal text-muted-foreground">{sel.items.length} items</span></div>
-                  <Table><TableHeader><TableRow><TableHead>Material</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Weight</TableHead></TableRow></TableHeader>
-                    <TableBody>{sel.items.map((i, k) => <TableRow key={k}><TableCell><div className="text-xs">{i.description}</div><div className="font-mono text-[10px] text-muted-foreground">{i.material}</div></TableCell><TableCell className="text-right text-xs">{i.qty} {i.uom}</TableCell><TableCell className="text-right text-xs">{i.weightKg} kg</TableCell></TableRow>)}</TableBody></Table>
+                  <div className="pointer-events-none absolute bottom-2 right-1 h-[76px] w-[45%]">{a ? <TruckProfile type={a.vehicle?.type} /> : <span className="flex h-full items-end justify-end pr-2 text-[11px] text-muted-foreground">{(r.d.weightKg / 1000).toFixed(2)} T</span>}</div>
                 </div>
-                <div className="text-[11px] text-muted-foreground">Prototype dispatch cut-off assumed {fmtHour(6)} on plan date.</div>
+              </button>
+            })}
+            {!visible.length && <div className="col-span-full rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">No deliveries match these filters.</div>}
+          </div>
+          <footer className="flex flex-wrap items-center justify-between gap-2 border-t px-5 py-3 text-xs text-muted-foreground"><span>{rows.length ? activePage * PAGE_SIZE + 1 : 0}–{Math.min((activePage + 1) * PAGE_SIZE, rows.length)} of {rows.length}</span><div className="flex items-center gap-2"><Button size="icon-sm" variant="outline" aria-label="Previous page" disabled={activePage === 0} onClick={() => {setPage(activePage-1);setSelectedId(undefined);setTripId(null);setMapOpen(false)}}><ChevronLeft /></Button><span>Page {activePage+1} / {pages}</span><Button size="icon-sm" variant="outline" aria-label="Next page" disabled={activePage+1 >= pages} onClick={() => {setPage(activePage+1);setSelectedId(undefined);setTripId(null);setMapOpen(false)}}><ChevronRight /></Button></div></footer>
+        </section>
+        <section id="shipment-details" aria-label="Shipment details" className="min-w-0 bg-card xl:min-h-0 xl:overflow-y-auto">
+          {selected ? <>
+            <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-card px-5 py-5"><div className="min-w-0"><h2 className="truncate text-xl font-semibold tracking-tight">Shipment #{selected.d.id}</h2><p className="mt-1 text-xs text-muted-foreground">SO {selected.d.salesOrder}</p></div><Button size="icon-sm" variant="outline" aria-label="Close shipment details" onClick={() => setSelectedId(null)}><X /></Button></header>
+            <div className="min-w-0 space-y-3 p-5">
+              <section className="relative min-w-0 rounded-md border bg-card p-4">
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-2"><h3 className="text-xl font-semibold tracking-tight">#{selected.d.id}</h3><Status stage={selected.stage} /></div>
+                <div className="relative grid grid-cols-2 gap-4">
+                  <Field label="Delivery destination">{selected.c.name}<div className="mt-1 text-xs font-normal text-muted-foreground">{selected.c.city}, {selected.c.state}</div></Field>
+                  <Field label={allocation ? "Planned ETA" : "Requested date"}>{allocation ? fmtHour(allocation.t.etas[allocation.index]) : formatPlanDate(selected.d.deliveryDate)}</Field>
+                  <Field label="Assigned vehicle">{vehicle?.reg ?? "Not allocated"}{vehicle && <div className="text-xs font-normal text-muted-foreground">{vehicle.ownership} · {vehicle.type}</div>}</Field>
+                  {vehicle ? <div className="h-16 self-end"><TruckProfile type={vehicle.type} /></div> : <Field label="Ship from">{selected.d.shippingPoint}</Field>}
+                </div>
+                <div className="mt-5 border-t pt-4">
+                  <div className="grid grid-cols-4 gap-1">
+                    {["SAP released","Eligible","Allocated","Published"].map((label,i) => {
+                      const done = i===0 ? selected.d.sapStatus==="Released" : i===1 ? selected.validation.state==="Eligible" : i===2 ? selected.stage==="Planned" : selected.stage==="Planned" && status==="Published"
+                      return <div key={label} className="min-w-0"><div className={"mb-2 flex h-1 items-center " + (done?"bg-foreground":"bg-muted")}><span className={"grid size-3 place-items-center rounded-full " + (done?"bg-foreground text-background":"bg-muted ring-1 ring-border")}>{done && <Check className="size-2" />}</span></div><div className={"text-[10px] leading-tight " + (done?"font-medium":"text-muted-foreground")}>{label}</div></div>
+                    })}
+                  </div>
+                  <p className="mt-3 text-[10px] text-muted-foreground">Planning lifecycle · not live delivery tracking</p>
+                </div>
+                {selected.allocations.length > 1 && <div className="mt-4"><label className="mb-1 block text-xs text-muted-foreground" htmlFor="shipment-trip">Split shipment allocation</label><select id="shipment-trip" value={trip?.id ?? ""} onChange={e => {setTripId(e.target.value);setMapOpen(false)}} className="w-full rounded border bg-background p-2 text-xs">{selected.allocations.map(a => <option key={a.stop.key} value={a.t.id}>{a.t.id} · {a.vehicle?.reg} · {kg(a.stop.weightKg)}</option>)}</select></div>}
+              </section>
+              <div className="grid min-w-0 gap-3 min-[600px]:grid-cols-2">
+                <div className="min-w-0 space-y-3">
+                  <Panel title="Route metrics">
+                    <div className="space-y-4">
+                      <Field label="Estimated trip distance">{trip ? Math.round(trip.distanceKm) + " km" : "—"}</Field>
+                      <Field label="Origin → destination">{selected.d.shippingPoint} <span aria-hidden="true">→</span> {selected.c.city}</Field>
+                      <Field label="Planned stop">{allocation ? (allocation.index+1) + " of " + allocation.t.stops.length : "Not allocated"}</Field>
+                      <Field label="Customer coordinates">{selected.c.lat != null && selected.c.lng != null ? selected.c.lat + ", " + selected.c.lng : "Missing"}</Field>
+                    </div>
+                  </Panel>
+                  <Panel title="Package details">
+                    <div className="mb-4"><div className="mb-2 flex justify-between text-xs"><span className="text-muted-foreground">Weight allocated</span><span className="font-semibold tabular-nums">{Math.round(selected.allocatedKg / selected.d.weightKg * 100)}%</span></div><div className="h-2.5 overflow-hidden rounded bg-muted"><div className="h-full rounded bg-foreground" style={{width: Math.min(100, selected.allocatedKg / selected.d.weightKg * 100) + "%"}} /></div></div>
+                    <div className="grid grid-cols-2 gap-4"><Field label="Weight">{kg(selected.d.weightKg)}</Field><Field label="Total volume">{selected.d.volumeM3} m³</Field><Field label="Line items">{selected.d.items.length}</Field><Field label="Order value">{inr(selected.d.value)}</Field></div>
+                    <div className="mt-4"><Field label="Customer category">{selected.c.category}</Field></div>
+                  </Panel>
+                </div>
+                <div className="min-w-0 space-y-3">
+                  <div className="relative min-h-32 overflow-hidden rounded-md border bg-muted">
+                    <Image src="/operations-map.webp" alt="" fill sizes="300px" className="object-cover opacity-60" />
+                    <div className="absolute inset-0 grid place-items-center"><Button disabled={!trip} onClick={() => setMapOpen(x => !x)} aria-expanded={mapOpen} className="bg-foreground text-background hover:bg-foreground/90"><MapIcon /> {mapOpen ? "Hide map" : "Map view"}</Button></div>
+                  </div>
+                  <Panel title={vehicle ? "Truck " + vehicle.reg : "Vehicle assignment"}>
+                    {vehicle && trip && cap ? <div className="space-y-4">
+                      <div><div className="mb-2 flex justify-between text-xs"><span className="text-muted-foreground">Trip utilization</span><span className="font-semibold">{Math.round(trip.util*100)}%</span></div><div className="h-2.5 overflow-hidden rounded bg-muted"><div className="h-full rounded bg-foreground" style={{width: Math.min(100,trip.util*100)+"%"}} /></div></div>
+                      <Field label="Trip reference">{trip.id}</Field><Field label="Payload / usable capacity">{kg(trip.weightKg)} / {kg(cap.usableKg)}</Field><Field label="Volume / capacity">{trip.volumeM3.toFixed(1)} / {cap.volM3} m³</Field><Field label="Estimated trip cost">{inr(trip.cost)}</Field>
+                      <Link href="/planning" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">Open planning workbench <ArrowUpRight className="size-3" /></Link>
+                    </div> : <p className="text-xs leading-relaxed text-muted-foreground">No vehicle allocated in the current plan. Review the planning rules or unplanned loads.</p>}
+                  </Panel>
+                </div>
               </div>
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
+              {mapOpen && trip && <section className="overflow-hidden rounded-md border"><div className="flex items-center justify-between p-3"><h3 className="text-sm font-semibold">Planned route · {trip.id}</h3><Button variant="ghost" size="icon-sm" aria-label="Close map" onClick={()=>setMapOpen(false)}><X /></Button></div><DispatchMap key={trip.id} trips={[trip]} customers={routeCustomers} ctx={ctx} state="" /></section>}
+              <Panel title="Appointment & planning rules">
+                <div className="grid grid-cols-2 gap-4"><Field label="Requested date">{formatPlanDate(selected.d.deliveryDate)}</Field><Field label="SAP status">{selected.d.sapStatus}</Field><Field label="Appointment">{selected.d.appointment ? selected.d.appointment.status : selected.c.requiresAppointment ? "Missing" : "Not required"}</Field><Field label="Priority">{selected.d.priority}</Field><Field label="Splitting">{selected.d.splittable?"Allowed":"Not allowed"}</Field><Field label="Vehicle restriction">{selected.c.ownVehicleOnly?"Company only":"Eligible company or market"}</Field></div>
+                {selected.d.appointment && <div className="mt-3"><Field label="Appointment window">{selected.d.appointment.date} · {selected.d.appointment.start}–{selected.d.appointment.end}</Field></div>}
+                <p className="mt-3 text-xs text-muted-foreground">{[selected.c.unloading, selected.c.maxLengthFt && "Max " + selected.c.maxLengthFt + " ft", selected.c.allowedTypes?.join(", ")].filter(Boolean).join(" · ")}</p>
+                {selected.d.modifiedAfterPlanning && <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">Changed after planning</p>}
+                {selected.d.note && <p className="mt-2 text-xs text-muted-foreground">{selected.d.note}</p>}
+                {selected.validation.issues.length > 0 && <div className="mt-3 rounded border border-red-500/30 bg-red-500/5 p-3 text-xs"><div className="font-semibold">Planning issues</div><ul className="mt-1 list-disc pl-4">{selected.validation.issues.map(i=><li key={i}>{i}</li>)}</ul>{selected.validation.state==="Blocked" && selected.c.requiresAppointment && selected.c.lat!=null && selected.c.lng!=null && selected.validation.issues.some(i=>/appointment/i.test(i)) && <Button size="sm" variant="outline" className="mt-3" onClick={()=>{grantException(selected.d.id);toast.success("Demo exception granted")}}><ShieldCheck /> Grant demo exception</Button>}</div>}
+                {exceptions.has(selected.d.id) && <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Demo appointment exception recorded</p>}
+                {(plan?.unplanned ?? []).filter(u=>u.stop.deliveryId===selected.d.id).map(u=><p key={u.stop.key} className="mt-2 rounded bg-muted p-2 text-xs">{u.kind}: {u.reason}</p>)}
+              </Panel>
+              <Panel title={"Line items (" + selected.d.items.length + ")"}>
+                <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-muted text-muted-foreground"><tr><th scope="col" className="p-2 font-medium">Material</th><th scope="col" className="p-2 text-right font-medium">Qty</th><th scope="col" className="p-2 text-right font-medium">Weight</th></tr></thead><tbody>{selected.d.items.map((i,k)=><tr key={k} className="border-b"><td className="p-2">{i.description}<div className="text-[10px] text-muted-foreground">{i.material}</div></td><td className="whitespace-nowrap p-2 text-right">{i.qty} {i.uom}</td><td className="whitespace-nowrap p-2 text-right">{kg(i.weightKg)}</td></tr>)}</tbody></table></div>
+              </Panel>
+              <p className="text-[11px] text-muted-foreground">Sample dispatch data. Vehicle drawings are representative. Estimated times follow the plan-day clock; live GPS, driver performance and POD events are not connected.</p>
+            </div>
+          </> : <div className="grid min-h-72 place-items-center p-8 text-center text-sm text-muted-foreground">Select a delivery to view its shipment details.</div>}
+        </section>
+      </div>
     </div>
   )
 }
