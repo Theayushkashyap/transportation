@@ -11,6 +11,7 @@ import { validateDelivery } from "@/lib/optimizer"
 import { buildLive, VEHICLE_PHOTO } from "@/lib/tracking"
 import { DispatchMap } from "@/components/app/dispatch-map"
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/app/bits"
 
 type Stage = "Planned" | "Partial" | "Unplanned" | "Blocked" | "Excluded"
 const stages = ["All", "Planned", "Partial", "Unplanned", "Blocked", "Excluded"] as const
@@ -100,11 +101,13 @@ export default function Deliveries() {
   const resetSelection = () => { setSelectedId(undefined); setTripId(null); setMapOpen(false); setPage(0) }
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm">
-      <div className="grid min-w-0 xl:h-[calc(100dvh-3.25rem)] xl:grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)] xl:overflow-hidden">
+    <div className="delivery-workspace min-w-0 xl:flex xl:h-[calc(100dvh-3.25rem)] xl:min-h-[38rem] xl:flex-col">
+      <PageHeader photo="deliveries" title="Deliveries" desc="Plan, allocate and track outbound shipments across your network." />
+      <div className="min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm xl:min-h-0 xl:flex-1">
+      <div className="grid min-w-0 xl:h-full xl:grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)] xl:overflow-hidden">
         <section aria-label="Deliveries" className="min-w-0 bg-muted/25 xl:min-h-0 xl:overflow-y-auto xl:border-r">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card px-5 py-5">
-            <div><h1 className="text-3xl font-bold tracking-tight">Deliveries</h1><p className="mt-1 text-[11px] text-muted-foreground">Outbound shipments · Demo workspace</p></div>
+            <div><h2 className="text-xl font-semibold tracking-tight">Shipments</h2><p className="mt-1 text-[11px] text-muted-foreground">Sample dispatch data</p></div>
             <div className="relative min-w-0 flex-1 sm:min-w-44"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><input aria-label="Search deliveries" value={q} onChange={e => {setQ(e.target.value);resetSelection()}} placeholder="Search ID, customer, city…" className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none focus:border-primary" /></div>
           </header>
           <nav aria-label="Shipment status filters" className="flex min-w-0 gap-4 overflow-x-auto border-b px-5">
@@ -212,6 +215,7 @@ export default function Deliveries() {
             </div>
           </> : <div className="grid min-h-72 place-items-center p-8 text-center text-sm text-muted-foreground">Select a delivery to view its shipment details.</div>}
         </section>
+      </div>
       </div>
     </div>
   )
