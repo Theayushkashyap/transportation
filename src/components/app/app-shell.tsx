@@ -1,10 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Activity, ClipboardList, FileCheck2, GitCompare, LayoutDashboard, Plug, Route, Settings2, Truck, Package, Radar } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { useEffect } from "react"
+import { Activity, FileCheck2, GitCompare, LayoutDashboard, LogOut, Plug, Route, Settings2, Truck, Package, Radar } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useStore } from "@/lib/store"
+import { useAuth } from "@/lib/auth"
+import { ThemeToggle } from "@/components/app/theme-toggle"
 import { Badge } from "@/components/ui/badge"
 
 const NAV = [
@@ -19,7 +22,6 @@ const NAV = [
   { group: "Govern", items: [
     { href: "/rules", label: "Rules & parameters", icon: Settings2 },
     { href: "/integrations", label: "Integrations & audit", icon: Plug },
-    { href: "/scope", label: "Scope & open items", icon: ClipboardList },
   ] },
 ]
 
@@ -31,9 +33,21 @@ const statusTone: Record<string, string> = {
   Published: "bg-emerald-600 text-white",
 }
 
+const PUBLIC = ["/login", "/signup"]
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname()
+  const router = useRouter()
+  const { user, ready, logout } = useAuth()
   const { status, rulesVersion, lastSync } = useStore()
+  const isPublic = PUBLIC.includes(path)
+  useEffect(() => {
+    if (!ready) return
+    if (!user && !isPublic) router.replace("/login")
+    if (user && isPublic) router.replace("/")
+  }, [ready, user, isPublic, router])
+  if (isPublic) return <>{children}</>
+  if (!ready || !user) return <div className="grid min-h-screen place-items-center"><div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
   return (
     <div className="flex min-h-screen">
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r bg-sidebar p-3 md:flex">
@@ -63,6 +77,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center justify-between"><span className="text-muted-foreground">Plan for 20 Nov</span><Badge className={cn("border-0", statusTone[status])}>{status}</Badge></div>
           <div className="mt-2 flex items-center gap-1.5 text-muted-foreground"><Activity className="size-3" />SAP sync {lastSync}</div>
           <div className="mt-1 flex items-center gap-1.5 text-muted-foreground"><FileCheck2 className="size-3" />Rules {rulesVersion}</div>
+        </div>
+        <ThemeToggle className="mt-2" />
+        <div className="mt-2 flex items-center gap-2 rounded-lg border bg-background p-2">
+          <div className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{user.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}</div>
+          <div className="min-w-0 flex-1"><div className="truncate text-xs font-medium">{user.name}</div><div className="truncate text-[11px] text-muted-foreground">{user.role} · {user.depot}</div></div>
+          <button onClick={() => { logout(); router.replace("/login") }} aria-label="Sign out" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><LogOut className="size-4" /></button>
         </div>
       </aside>
       <main className="min-w-0 flex-1">

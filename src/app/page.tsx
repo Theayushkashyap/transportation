@@ -10,6 +10,7 @@ import { Kpi, PageHeader, Tag } from "@/components/app/bits"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { LiveTracking } from "@/components/app/live-tracking"
 
 export default function Dashboard() {
   const { plan, kpis, ctx, deliveries, customers, vehicles, status, optimize, params, exceptions, lastSync } = useStore()
@@ -57,6 +58,8 @@ export default function Dashboard() {
         <Kpi label="Planned cost" value={kpis ? inrK(kpis.cost) : "–"} sub={kpis ? `${inr(kpis.costPerTon)} per tonne` : undefined} />
         <Kpi label="Market hires" value={kpis ? kpis.marketTrips : "–"} sub={kpis ? `${kpis.unplannedLoads} loads unplanned` : undefined} tone={kpis && kpis.marketTrips > 6 ? "warn" : undefined} />
       </div>
+
+      <LiveTracking />
 
       {!plan ? (
         <Card className="mt-6"><CardContent className="flex flex-col items-center gap-3 py-16 text-center">

@@ -327,7 +327,7 @@ function buildDeliveries(): Delivery[] {
 export const DELIVERIES: Delivery[] = buildDeliveries()
 
 // ---------- vehicles ----------
-const ALL_STATES = ["Karnataka", "Tamil Nadu", "Andhra Pradesh", "Telangana", "Maharashtra"]
+export const ALL_STATES = ["Karnataka", "Tamil Nadu", "Andhra Pradesh", "Telangana", "Maharashtra"]
 type V = [string, Ownership, VehicleTypeName, string, number, Vehicle["status"]?, string?, string[]?]
 const vehicleSeed: V[] = [
   ["KA-01-AB-1234", "Company", "ICV 6T", "BLR-01", 6],
