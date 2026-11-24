@@ -30,30 +30,30 @@ export function VehicleDialog({ vehicle, onClose }: { vehicle: Vehicle | null; o
   const tone = v?.status === "Available" ? "green" : v?.status === "Assigned" ? "amber" : "red"
   return (
     <Dialog open={!!v} onOpenChange={(o) => !o && close()}>
-      <DialogContent className="max-h-[90vh] gap-0 overflow-y-auto p-0 sm:!max-w-[1440px] !max-h-[94dvh] bg-muted/30">
+      <DialogContent className="!block !max-w-none !gap-0 !bg-background !p-0" style={{ width: "min(1440px, calc(100vw - 32px))", maxHeight: "94dvh", minWidth: 0, overflowX: "hidden", overflowY: "auto", display: "block", backgroundColor: "var(--background)" }} overlayClassName="bg-black/35 supports-backdrop-filter:backdrop-blur-none">
         {v && t && (
           <>
-            <header className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-5 pr-14">
+            <header className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b bg-card px-5 py-4 pr-14">
               <div><div className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Vehicle workspace</div><DialogTitle className="text-2xl font-semibold">{v.reg}</DialogTitle><DialogDescription className="mt-1">{VEHICLE_PHOTO[v.type].model} · {v.type} · {v.id}</DialogDescription></div>
               <div className="flex gap-2"><Tag tone={v.ownership === "Company" ? "blue" : "amber"}>{v.ownership}</Tag><Tag tone={tone}>{v.status}</Tag></div>
             </header>
-            <div className="grid gap-4 bg-muted/30 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)_minmax(0,1fr)]">
-              <div className="space-y-3">
+            <div className="grid w-full min-w-0 gap-4 bg-muted/30 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)_minmax(0,1fr)]">
+              <div className="min-w-0 space-y-3">
                 <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">Current assignment</div><div className="mt-2 text-lg font-semibold">{trip?.id ?? "Unallocated"}</div><div className="mt-2 text-xs text-muted-foreground">{trip ? `${Math.round(trip.distanceKm)} km · ${trip.stops.length} stops` : "No assigned trip"}</div><div className="mt-4 border-t pt-3 text-sm"><div className="text-xs text-muted-foreground">Depot</div>{sp?.name ?? v.location}<div className="mt-2 text-xs text-muted-foreground">Ready from {fmtHour(v.availableFromH)}</div></div></div>
                 <Spec l="Planned departure" v={trip ? fmtHour(trip.startH) : "—"} />
                 <Spec l="Final planned stop" v={routeCustomers[routeCustomers.length - 1]?.city ?? "—"} />
               </div>
-              <div className="relative min-h-72 overflow-hidden rounded-xl bg-muted/40"><Image src={VEHICLE_PHOTO[v.type].src} alt={`${VEHICLE_PHOTO[v.type].model} representative vehicle`} fill sizes="(min-width:1024px) 700px, 90vw" className="object-contain" /><span className="absolute bottom-2 left-2 rounded bg-background/90 px-2 py-1 text-[10px] text-muted-foreground">Representative vehicle image</span></div>
+              <div className="relative min-w-0 overflow-hidden rounded-xl border bg-card" style={{ minHeight: 288, height: "100%" }}><Image src={VEHICLE_PHOTO[v.type].src} alt={`${VEHICLE_PHOTO[v.type].model} representative vehicle`} fill sizes="(min-width:1024px) 700px, 90vw" className="object-contain" /><span className="absolute bottom-2 left-2 rounded bg-background/90 px-2 py-1 text-[10px] text-muted-foreground">Representative vehicle image</span></div>
               <div className="space-y-3">
                 <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">Planned payload / usable capacity</div><div className="mt-2 text-2xl font-semibold tabular-nums">{trip ? (trip.weightKg / 1000).toFixed(2) : "0"} <span className="text-sm font-normal text-muted-foreground">/ {t.usableKg / 1000} T</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-violet-500" style={{width: `${Math.min(100, (trip?.weightKg ?? 0) / t.usableKg * 100)}%`}} /></div></div>
                 <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">Planned volume</div><div className="mt-1 text-xl font-semibold">{(trip?.volumeM3 ?? 0).toFixed(1)} <span className="text-xs font-normal text-muted-foreground">/ {t.volM3} m³</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-emerald-500" style={{width: `${Math.min(100, (trip?.volumeM3 ?? 0) / t.volM3 * 100)}%`}} /></div></div>
                 <Spec l="Estimated trip cost" v={trip ? inr(trip.cost) : "—"} />
               </div>
             </div>
-            <section className="border-y bg-background/50 px-5 py-3" aria-label="Select another vehicle">
+            <section className="w-full min-w-0 overflow-hidden border-y bg-background px-5 py-3" aria-label="Select another vehicle">
               <div className="mb-2 flex items-center justify-between"><h3 className="text-xs font-medium text-muted-foreground">Browse fleet</h3><span className="text-xs text-muted-foreground">{vehicles.length} vehicles · scroll to browse</span></div>
-              <div className="flex gap-2 overflow-x-auto pb-2">
-                {[v, ...vehicles.filter(x => x.id !== v.id)].map(x => (
+              <div className="flex w-full min-w-0 max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-2" style={{ width: "100%", minWidth: 0, maxWidth: "100%", overflowX: "auto" }}>
+                {vehicles.map(x => (
                   <button key={x.id} type="button" aria-pressed={x.id === v.id} onClick={() => setSelection({ origin: vehicle!.id, id: x.id })} className={`flex w-52 shrink-0 items-center gap-2 rounded-xl border p-2 text-left transition-colors ${x.id === v.id ? "border-primary bg-card ring-1 ring-primary/30" : "bg-card/60 hover:bg-card"}`}>
                     <div className="min-w-0 flex-1"><div className="truncate font-semibold text-xs">{x.reg}</div><div className="mt-1 text-[11px] text-muted-foreground">{x.type} · {x.status}</div></div>
                     <div className="relative h-12 w-20 shrink-0"><Image src={VEHICLE_PHOTO[x.type].src} alt="" fill sizes="80px" className="rounded object-contain" /></div>
@@ -61,7 +61,7 @@ export function VehicleDialog({ vehicle, onClose }: { vehicle: Vehicle | null; o
                 ))}
               </div>
             </section>
-            <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <div className="grid w-full min-w-0 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
               <section className="min-w-0 overflow-hidden rounded-xl border bg-card">
                 <div className="p-4"><h3 className="font-semibold">Planned route</h3><p className="mt-1 text-xs text-muted-foreground">{trip ? `${trip.stops.length} stops · ${Math.round(trip.distanceKm)} km estimated` : "No trip allocated"}</p></div>
                 {trip ? <DispatchMap key={trip.id} trips={[trip]} customers={routeCustomers} ctx={ctx} state="" /> : <div className="grid min-h-56 place-items-center bg-muted/30 text-xs text-muted-foreground">Route appears after allocation.</div>}
@@ -73,7 +73,7 @@ export function VehicleDialog({ vehicle, onClose }: { vehicle: Vehicle | null; o
                 {!!trip?.violations.length && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{trip.violations.join(" · ")}</p>}
               </section>
             </div>
-            <div className="space-y-5 px-5 pb-5">
+            <div className="min-w-0 space-y-5 px-5 pb-5">
               {v.statusNote && <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"><Wrench className="size-3.5 shrink-0" />{v.statusNote}</div>}
 
               <section>
