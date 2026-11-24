@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { useStore } from "@/lib/store"
 import { fmtHour, formatPlanDate, inr, SHIPPING_POINTS, VEHICLE_TYPES, type VehicleTypeName } from "@/lib/data"
 import { validateDelivery } from "@/lib/optimizer"
+import { VEHICLE_PHOTO } from "@/lib/tracking"
 import { DispatchMap } from "@/components/app/dispatch-map"
 import { Button } from "@/components/ui/button"
 
@@ -27,25 +28,10 @@ function Status({ stage }: { stage: Stage }) {
   return <span className={"inline-flex shrink-0 rounded px-2 py-1 text-[11px] font-semibold " + stageStyles[stage]}>{stage === "Partial" ? "Partially planned" : stage}</span>
 }
 
-// A neutral side-profile illustration, not a photograph or a loading diagram.
-function TruckProfile({ type }: { type?: VehicleTypeName }) {
-  const small = type === "Ace 1T" || type === "LCV 3T"
-  return (
-    <svg viewBox="0 0 250 112" aria-hidden="true" className="h-full w-full">
-      <ellipse cx="129" cy="98" rx="111" ry="5" fill="#94a3b8" opacity=".18" />
-      <path d={small ? "M77 31H234V84H77Z" : "M86 11H239V83H86Z"} fill="#f7f7f7" stroke="#a9afb2" strokeWidth="1.4" />
-      <path d={small ? "M82 36H229V78H82Z" : "M91 17H233V77H91Z"} fill="#e8ebed" stroke="#c7cbce" />
-      <path d="M22 82H243V90H22Z" fill="#343b40" />
-      <path d={small ? "M12 78L16 62 32 57 49 35H77V84H12Z" : "M12 83V62L26 57 35 24H80V85H12Z"} fill="#fff" stroke="#a9afb2" strokeWidth="1.3" strokeLinejoin="round" />
-      <path d={small ? "M34 55L50 39H69V55Z" : "M31 53L40 29H71V53Z"} fill="#91a4af" stroke="#647783" />
-      <path d="M69 58H76M22 69H14M47 61H71V79" stroke="#92999d" fill="none" strokeWidth="1.4" />
-      <rect x="11" y="74" width="10" height="5" rx="1" fill="#d6b876" />
-      <rect x="12" y="82" width="23" height="5" rx="1" fill="#676f73" />
-      {[48, small ? 205 : 193, ...(!small && type === "MCV 16T" ? [218] : [])].map(x => (
-        <g key={x}><circle cx={x} cy="87" r="13" fill="#25292c" /><circle cx={x} cy="87" r="7" fill="#aeb6ba" /><circle cx={x} cy="87" r="3" fill="#5d666d" /></g>
-      ))}
-    </svg>
-  )
+// Reuse the same representative vehicle photographs as Fleet & vehicles.
+function DeliveryVehiclePhoto({ type, className = "" }: { type: VehicleTypeName; className?: string }) {
+  const photo = VEHICLE_PHOTO[type]
+  return <div className={"relative w-full overflow-hidden rounded-md border bg-muted/30 " + className}><Image src={photo.src} alt={photo.model + " — representative " + type} fill sizes="(min-width:1280px) 180px, 35vw" className="object-contain" /></div>
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -74,7 +60,8 @@ export default function Deliveries() {
     const allocations = (plan?.trips ?? []).flatMap(t => t.stops.flatMap((stop, index) => stop.deliveryId === d.id ? [{ t, stop, index, vehicle: ctx.vehicles[t.vehicleId] }] : []))
     const allocatedKg = allocations.reduce((n, a) => n + a.stop.weightKg, 0)
     const stage: Stage = validation.state === "Excluded" ? "Excluded" : validation.state === "Blocked" ? "Blocked" : allocatedKg >= d.weightKg && allocations.length ? "Planned" : allocations.length ? "Partial" : "Unplanned"
-    return { d, c, validation, allocations, allocatedKg, stage }
+    const exampleType = validation.state === "Eligible" ? Object.values(VEHICLE_TYPES).filter(t => t.usableKg >= d.weightKg && t.volM3 >= d.volumeM3 && (!c.maxLengthFt || t.lengthFt <= c.maxLengthFt) && (!c.allowedTypes || c.allowedTypes.includes(t.name))).sort((a,b) => a.usableKg-b.usableKg)[0]?.name : undefined
+    return { d, c, validation, allocations, allocatedKg, stage, exampleType }
   })
   const scoped = all.filter(r => (sp === "all" || r.d.shippingPoint === sp) && (stateF === "all" || r.c.state === stateF) && (r.d.id + " " + r.d.salesOrder + " " + r.c.name + " " + r.c.city + " " + r.c.state + " " + r.stage + " " + r.allocations.map(a => a.vehicle?.reg ?? "").join(" ")).toLowerCase().includes(q.trim().toLowerCase()))
   const counts = Object.fromEntries(stages.map(k => [k, k === "All" ? scoped.length : scoped.filter(r => r.stage === k).length])) as Record<Filter, number>
@@ -110,16 +97,17 @@ export default function Deliveries() {
           <div className="grid min-w-0 grid-cols-1 gap-2.5 p-5 sm:grid-cols-2">
             {visible.map(r => {
               const a = r.allocations[0]
+              const photoType = a?.vehicle?.type ?? r.exampleType
               const active = selected?.d.id === r.d.id
               return <button type="button" key={r.d.id} onClick={() => selectDelivery(r.d.id)} aria-pressed={active} className={"min-w-0 overflow-hidden rounded-md border bg-card text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 " + (active ? "border-foreground ring-1 ring-foreground" : "hover:border-muted-foreground/60")}>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3.5"><span className="text-lg font-semibold tracking-tight">#{r.d.id}</span><Status stage={r.stage} /></div>
                 <div className="relative min-h-40 p-4">
                   <div className="mb-3 min-w-0"><div className="text-[11px] text-muted-foreground">Delivery destination</div><div className="truncate text-xs font-medium" title={r.c.name}>{r.c.name}</div><div className="truncate text-xs text-muted-foreground">{r.c.city}, {r.c.state}</div></div>
-                  <div className="relative z-10 w-[64%] space-y-2">
+                  <div className="grid min-w-0 grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] items-end gap-2"><div className="min-w-0 space-y-2">
                     <div><div className="text-[11px] text-muted-foreground">{a ? "Planned ETA" : "Requested date"}</div><div className="text-xs font-medium">{a ? fmtHour(a.t.etas[a.index]) : formatPlanDate(r.d.deliveryDate)}</div></div>
                     <div><div className="text-[11px] text-muted-foreground">Assigned vehicle</div><div className="break-words text-xs font-medium">{a?.vehicle?.reg ?? "Not allocated"}</div></div>
                   </div>
-                  <div className="pointer-events-none absolute bottom-2 right-1 h-[76px] w-[45%]">{a ? <TruckProfile type={a.vehicle?.type} /> : <span className="flex h-full items-end justify-end pr-2 text-[11px] text-muted-foreground">{(r.d.weightKg / 1000).toFixed(2)} T</span>}</div>
+                  <div className="min-w-0 text-right">{photoType ? <><DeliveryVehiclePhoto type={photoType} className="h-[76px]" /><div className="mt-1 text-[10px] leading-tight text-muted-foreground">{a?.vehicle ? photoType : photoType + " · example only"}</div></> : <span className="text-[11px] text-muted-foreground">{(r.d.weightKg / 1000).toFixed(2)} T</span>}</div></div>
                 </div>
               </button>
             })}
@@ -137,7 +125,7 @@ export default function Deliveries() {
                   <Field label="Delivery destination">{selected.c.name}<div className="mt-1 text-xs font-normal text-muted-foreground">{selected.c.city}, {selected.c.state}</div></Field>
                   <Field label={allocation ? "Planned ETA" : "Requested date"}>{allocation ? fmtHour(allocation.t.etas[allocation.index]) : formatPlanDate(selected.d.deliveryDate)}</Field>
                   <Field label="Assigned vehicle">{vehicle?.reg ?? "Not allocated"}{vehicle && <div className="text-xs font-normal text-muted-foreground">{vehicle.ownership} · {vehicle.type}</div>}</Field>
-                  {vehicle ? <div className="h-16 self-end"><TruckProfile type={vehicle.type} /></div> : <Field label="Ship from">{selected.d.shippingPoint}</Field>}
+                  {vehicle ? <div className="min-w-0 self-end"><DeliveryVehiclePhoto type={vehicle.type} className="h-24" /><p className="mt-1 text-[10px] text-muted-foreground">{VEHICLE_PHOTO[vehicle.type].model} · representative photo</p></div> : <Field label="Ship from">{selected.d.shippingPoint}</Field>}
                 </div>
                 <div className="mt-5 border-t pt-4">
                   <div className="grid grid-cols-4 gap-1">
@@ -194,7 +182,7 @@ export default function Deliveries() {
               <Panel title={"Line items (" + selected.d.items.length + ")"}>
                 <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-muted text-muted-foreground"><tr><th scope="col" className="p-2 font-medium">Material</th><th scope="col" className="p-2 text-right font-medium">Qty</th><th scope="col" className="p-2 text-right font-medium">Weight</th></tr></thead><tbody>{selected.d.items.map((i,k)=><tr key={k} className="border-b"><td className="p-2">{i.description}<div className="text-[10px] text-muted-foreground">{i.material}</div></td><td className="whitespace-nowrap p-2 text-right">{i.qty} {i.uom}</td><td className="whitespace-nowrap p-2 text-right">{kg(i.weightKg)}</td></tr>)}</tbody></table></div>
               </Panel>
-              <p className="text-[11px] text-muted-foreground">Sample dispatch data. Vehicle drawings are representative. Estimated times follow the plan-day clock; live GPS, driver performance and POD events are not connected.</p>
+              <p className="text-[11px] text-muted-foreground">Sample dispatch data. Vehicle photographs are representative; capacity examples are not allocations. Estimated times follow the plan-day clock; live GPS, driver performance and POD events are not connected.</p>
             </div>
           </> : <div className="grid min-h-72 place-items-center p-8 text-center text-sm text-muted-foreground">Select a delivery to view its shipment details.</div>}
         </section>
