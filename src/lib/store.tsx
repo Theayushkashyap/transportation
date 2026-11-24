@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react"
-import { AuditEntry, CUSTOMERS, DEFAULT_PARAMS, DELIVERIES, PlanParams, SEED_AUDIT, VEHICLES, Vehicle } from "./data"
+import { AuditEntry, CUSTOMERS, DEFAULT_PARAMS, DELIVERIES, PlanParams, VEHICLES, Vehicle } from "./data"
 import { Ctx, evaluateTrip, Plan, planKpis, PlanKpis, runOptimization, Stop, Trip, Unplanned } from "./optimizer"
 
 export type PlanStatus = "None" | "Draft" | "Pending approval" | "Approved" | "Published"
@@ -18,12 +18,12 @@ interface Store {
   grantException: (id: string) => void
   plan: Plan | null
   status: PlanStatus
+  canOptimize: boolean
+  reviewBlocker: string | null
   runs: { plan: Plan; kpis: PlanKpis }[]
   kpis: PlanKpis | null
   ctx: Ctx
   audit: AuditEntry[]
-  lastSync: string
-  sync: () => void
   optimize: (label?: string, override?: PlanParams) => void
   setVehicleStatus: (id: string, status: Vehicle["status"]) => void
   reassignVehicle: (tripId: string, vehicleId: string) => string | null
@@ -56,11 +56,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [plan, setPlan] = useState<Plan | null>(null)
   const [status, setStatus] = useState<PlanStatus>("None")
   const [runs, setRuns] = useState<{ plan: Plan; kpis: PlanKpis }[]>([])
-  const [audit, setAudit] = useState<AuditEntry[]>(SEED_AUDIT)
-  const [lastSync, setLastSync] = useState("19 Nov 17:05")
+  const [audit, setAudit] = useState<AuditEntry[]>([])
 
   const log = useCallback((action: string, detail: string) => {
-    setAudit((a) => [{ at: stamp(), user: "Anita R. (Planner)", action, detail }, ...a])
+    setAudit((a) => [{ at: stamp(), action, detail }, ...a])
   }, [])
 
   const ctx: Ctx = useMemo(
@@ -70,52 +69,62 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const rulesVersion = `v${version}`
 
   const kpis = useMemo(() => (plan ? planKpis(plan, ctx) : null), [plan, ctx])
+  const canOptimize = status === "None" || status === "Draft"
+  const reviewBlocker = !plan?.trips.length ? "Add at least one trip before submitting the plan."
+    : plan.trips.some((trip) => ctx.vehicles[trip.vehicleId]?.status !== "Available") ? "Replace unavailable vehicles before continuing."
+    : kpis?.violations ? "Resolve trip warnings before continuing."
+    : null
 
   const optimize = (label?: string, override?: PlanParams) => {
+    if (!canOptimize) return
     const c: Ctx = { ...ctx, params: override ?? params }
-    const p = runOptimization(c, label ?? `Run ${runs.length + 1}`, rulesVersion)
+    const p = runOptimization(c, label ?? `Run ${runs.length + 1}`, rulesVersion, new Date())
     setPlan(p)
     setStatus("Draft")
     setRuns((r) => [...r.slice(-4), { plan: p, kpis: planKpis(p, c) }])
     log("Optimization run", `${p.id} · ${p.trips.length} trips · ${p.unplanned.length} unplanned · rules ${rulesVersion}`)
   }
 
-  const touch = (fn: (p: Plan) => Plan) => {
-    setPlan((p) => (p ? fn(p) : p))
-    if (status !== "Draft") setStatus("Draft")
-  }
-
   const reassignVehicle = (tripId: string, vehicleId: string) => {
-    if (!plan) return null
-    const trip = plan.trips.find((t) => t.id === tripId)!
+    if (status !== "Draft" || !plan) return "Reopen the plan to edit it."
+    const trip = plan.trips.find((t) => t.id === tripId)
     const v = ctx.vehicles[vehicleId]
+    if (!trip || v?.status !== "Available" || v.location !== trip.sp) return "Choose an available vehicle at this depot."
     const clash = plan.trips.find((t) => t.vehicleId === vehicleId && t.id !== tripId)
+    if (clash) return `Vehicle already assigned to ${clash.id}.`
     const ev = evaluateTrip(ctx, trip.sp, trip.stops, v, trip.id)
-    if (clash) ev.violations.push(`Vehicle already assigned to ${clash.id}`)
-    ev.rationale = [...trip.rationale.slice(0, 0), `Manually reassigned to ${v.reg} by planner`]
-    ev.considered = trip.considered
-    touch((p) => ({ ...p, trips: p.trips.map((t) => (t.id === tripId ? ev : t)) }))
+    ev.rationale = [`Manually reassigned to ${v.reg} by planner`]
+    setPlan((p) => p && { ...p, trips: p.trips.map((t) => (t.id === tripId ? ev : t)) })
     log("Manual vehicle change", `${tripId} → ${v.reg} (${v.type}, ${v.ownership})${ev.violations.length ? ` · ${ev.violations.length} violation(s) overridden` : ""}`)
     return ev.violations.length ? ev.violations.join("; ") : null
   }
 
   const moveStop = (stop: Stop, from: string, to: string) => {
-    if (!plan || from === to) return
-    touch((p) => {
+    if (!plan || status !== "Draft" || from === to) return
+    const origin = from === "unplanned"
+      ? plan.unplanned.some((u) => u.stop.key === stop.key)
+      : plan.trips.some((trip) => trip.id === from && trip.stops.some((s) => s.key === stop.key))
+    const sp = ctx.deliveries[stop.deliveryId].shippingPoint
+    if (!origin || (to !== "unplanned" && !plan.trips.some((trip) => trip.id === to && trip.sp === sp))) return
+    const reevaluate = (trip: Trip, stops: Stop[]) => ({
+      ...evaluateTrip(ctx, trip.sp, stops, ctx.vehicles[trip.vehicleId], trip.id),
+      rationale: ["Stops adjusted by planner"],
+    })
+    setPlan((p) => {
+      if (!p) return p
       let trips: Trip[] = p.trips
       let unplanned: Unplanned[] = p.unplanned
       const fromTrip = trips.find((t) => t.id === from)
       const fromUnpl = unplanned.find((u) => u.stop.key === stop.key)
-      const sp = fromTrip?.sp ?? fromUnpl?.sp ?? ctx.deliveries[stop.deliveryId].shippingPoint
       if (fromTrip) {
         const rest = fromTrip.stops.filter((s) => s.key !== stop.key)
-        trips = rest.length ? trips.map((t) => (t.id === from ? { ...evaluateTrip(ctx, t.sp, rest, ctx.vehicles[t.vehicleId], t.id), rationale: t.rationale, considered: t.considered } : t)) : trips.filter((t) => t.id !== from)
+        trips = rest.length ? trips.map((t) => (t.id === from ? reevaluate(t, rest) : t)) : trips.filter((t) => t.id !== from)
       }
       if (fromUnpl) unplanned = unplanned.filter((u) => u.stop.key !== stop.key)
       if (to === "unplanned") {
         unplanned = [...unplanned, { stop, sp, kind: "Constraint", reason: "Removed from plan manually by planner" }]
       } else {
-        trips = trips.map((t) => (t.id === to ? { ...evaluateTrip(ctx, t.sp, [...t.stops, stop], ctx.vehicles[t.vehicleId], t.id), rationale: t.rationale, considered: t.considered } : t))
+        trips = trips.map((t) => (t.id === to ? reevaluate(t, [...t.stops, stop]) : t))
       }
       return { ...p, trips, unplanned }
     })
@@ -137,20 +146,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     exceptions,
     grantException: (id) => {
       setExceptions((s) => new Set(s).add(id))
-      log("Appointment exception", `Delivery ${id} allowed without confirmed appointment (supervisor override)`)
+      log("Appointment exception", `Delivery ${id} allowed without confirmed appointment (demo override)`)
     },
     plan,
     status,
+    canOptimize,
+    reviewBlocker,
     runs,
     kpis,
     ctx,
     audit,
-    lastSync,
-    sync: () => {
-      const s = stamp()
-      setLastSync(s)
-      log("SAP delivery sync", `On-demand refresh · ${DELIVERIES.length} deliveries · 0 duplicates · 1 modified after planning`)
-    },
     optimize,
     setVehicleStatus: (id, st) => {
       setVehicles((vs) => vs.map((v) => (v.id === id ? { ...v, status: st, statusNote: st === "Unavailable" ? "Marked unavailable manually" : undefined } : v)))
@@ -159,18 +164,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     reassignVehicle,
     moveStop,
     submit: () => {
+      if (status !== "Draft" || reviewBlocker) return
       setStatus("Pending approval")
-      log("Plan submitted", `${plan?.id} sent to Logistics Supervisor`)
+      log("Plan submitted", `${plan?.id} submitted for demo approval`)
     },
     approve: () => {
+      if (status !== "Pending approval" || reviewBlocker) return
       setStatus("Approved")
-      log("Plan approved", `${plan?.id} approved by Logistics Supervisor`)
+      log("Plan approved", `${plan?.id} approved in the demo`)
     },
     publish: () => {
+      if (status !== "Approved" || reviewBlocker) return
       setStatus("Published")
-      log("Plan published", `${plan?.id} · ${plan?.trips.length} shipments pushed to SAP (TM / shipment documents)`)
+      log("Publishing simulated", `${plan?.id} · ${plan?.trips.length} demo trips`)
     },
-    reopen: () => setStatus("Draft"),
+    reopen: () => {
+      if (!plan || canOptimize) return
+      setStatus("Draft")
+      log("Plan reopened", plan.id)
+    },
     log,
   }
   return <Ctx_.Provider value={value}>{children}</Ctx_.Provider>

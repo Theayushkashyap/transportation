@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { RefreshCw, ShieldCheck } from "lucide-react"
+import { ShieldCheck } from "lucide-react"
 import { toast } from "sonner"
 import { useStore } from "@/lib/store"
 import { Delivery, fmtHour, inr, SHIPPING_POINTS } from "@/lib/data"
@@ -15,7 +15,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 export default function Deliveries() {
-  const { deliveries, customers, params, exceptions, grantException, sync, lastSync, plan } = useStore()
+  const { deliveries, customers, params, exceptions, grantException, plan } = useStore()
   const [q, setQ] = useState("")
   const [sp, setSp] = useState("all")
   const [st, setSt] = useState("all")
@@ -32,10 +32,9 @@ export default function Deliveries() {
   return (
     <>
       <PageHeader
+        photo="deliveries"
         title="Deliveries"
-        desc="Released outbound deliveries synchronised from SAP, validated for planning eligibility before they reach the optimizer."
-        reqs="INT-01, INT-04, INT-05, INT-06 · delivery eligibility validation"
-        actions={<Button variant="outline" onClick={() => { sync(); toast.success("SAP sync complete", { description: `${deliveries.length} deliveries · 0 duplicates · 1 modified since last plan` }) }}><RefreshCw /> Refresh from SAP</Button>}
+        desc="Sample outbound deliveries with eligibility checks for planning."
       />
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         {(["Eligible", "Blocked", "Excluded"] as const).map((k) => (
@@ -48,19 +47,19 @@ export default function Deliveries() {
       <Card>
         <CardContent>
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <Input className="w-64" placeholder="Search delivery, customer, city…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <Input className="w-64" aria-label="Search deliveries" placeholder="Search delivery, customer, city…" value={q} onChange={(e) => setQ(e.target.value)} />
             <Select value={sp} onValueChange={(v) => setSp(v ?? "all")}>
               <SelectTrigger className="w-40"><SelectValue placeholder="Shipping point" /></SelectTrigger>
               <SelectContent><SelectItem value="all">All shipping points</SelectItem>{SHIPPING_POINTS.map((s) => <SelectItem key={s.id} value={s.id}>{s.id} · {s.name}</SelectItem>)}</SelectContent>
             </Select>
-            <span className="ml-auto text-xs text-muted-foreground">Last sync {lastSync} · {rows.length} shown</span>
+            <span className="ml-auto text-xs text-muted-foreground">{rows.length} shown</span>
           </div>
           <Table>
             <TableHeader><TableRow><TableHead>Delivery</TableHead><TableHead>Customer</TableHead><TableHead>Origin</TableHead><TableHead className="text-right">Weight</TableHead><TableHead className="text-right">Volume</TableHead><TableHead>Due</TableHead><TableHead>Appointment</TableHead><TableHead>Validation</TableHead></TableRow></TableHeader>
             <TableBody>
               {rows.map(({ d, c, v }) => (
                 <TableRow key={d.id} className="cursor-pointer" onClick={() => setSel(d)}>
-                  <TableCell className="font-mono text-xs">{d.id}{d.modifiedAfterPlanning && <Tag tone="amber" className="ml-2">Changed</Tag>}</TableCell>
+                  <TableCell className="font-mono text-xs"><button type="button" className="cursor-pointer font-semibold text-primary hover:underline" aria-label={`Open delivery ${d.id}`}>{d.id}</button>{d.modifiedAfterPlanning && <Tag tone="amber" className="ml-2">Changed</Tag>}</TableCell>
                   <TableCell><div className="max-w-60 truncate text-sm">{c.name}</div><div className="text-xs text-muted-foreground">{c.city}, {c.state} · {c.category}</div></TableCell>
                   <TableCell className="text-xs">{d.shippingPoint}</TableCell>
                   <TableCell className="text-right tabular-nums">{(d.weightKg / 1000).toFixed(2)} T</TableCell>
@@ -88,7 +87,7 @@ export default function Deliveries() {
                     <div className="mb-1 font-medium">Why this delivery cannot be planned</div>
                     <ul className="list-disc pl-4 text-xs">{sd.v.issues.map((i) => <li key={i}>{i}</li>)}</ul>
                     {sd.v.state === "Blocked" && sd.c.requiresAppointment && sd.c.lat != null && (
-                      <Button size="sm" variant="outline" className="mt-3" onClick={() => { grantException(sel.id); toast.success("Exception granted", { description: "Logged in audit trail" }) }}><ShieldCheck /> Grant authorised exception</Button>
+                      <Button size="sm" variant="outline" className="mt-3" onClick={() => { grantException(sel.id); toast.success("Exception granted", { description: "Recorded in session activity" }) }}><ShieldCheck /> Grant demo exception</Button>
                     )}
                   </div>
                 )}

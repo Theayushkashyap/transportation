@@ -1,19 +1,22 @@
 "use client"
 
 import { cn } from "@/lib/utils"
+import type { CSSProperties } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 
-export function PageHeader({ title, desc, actions, reqs }: { title: string; desc?: string; actions?: React.ReactNode; reqs?: string }) {
+type HeaderPhoto = "planning" | "deliveries" | "fleet" | "execution" | "scenarios" | "rules" | "activity" | "coverage"
+
+export function PageHeader({ title, desc, actions, photo }: { title: string; desc?: string; actions?: React.ReactNode; photo?: HeaderPhoto }) {
+  const style = photo ? { "--page-hero-photo": `url("/banners/${photo}.webp")` } as CSSProperties : undefined
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        {desc && <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{desc}</p>}
-        {reqs && <div className="mt-2 text-[11px] text-muted-foreground">Covers: {reqs}</div>}
+    <header className="page-hero" data-page-photo={photo} style={style}>
+      <div className="page-hero-content">
+        <h1 className="text-[clamp(1.7rem,3vw,2.35rem)] leading-tight font-bold tracking-[-0.045em]">{title}</h1>
+        {desc && <p className="mt-1.5 max-w-2xl text-sm text-slate-100">{desc}</p>}
+        {actions && <div className="page-hero-actions">{actions}</div>}
       </div>
-      <div className="flex flex-wrap items-center gap-2">{actions}</div>
-    </div>
+    </header>
   )
 }
 
@@ -30,11 +33,11 @@ export function Kpi({ label, value, sub, tone }: { label: string; value: React.R
 }
 
 export function UtilBar({ value, className }: { value: number; className?: string }) {
-  const pct = Math.min(100, Math.round(value * 100))
+  const pct = Math.round(value * 100)
   const color = pct >= 80 ? "bg-emerald-500" : pct >= 60 ? "bg-amber-500" : "bg-red-500"
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <div className="h-2 w-full min-w-16 overflow-hidden rounded-full bg-muted"><div className={cn("h-full rounded-full", color)} style={{ width: `${pct}%` }} /></div>
+      <div className="h-2 w-full min-w-16 overflow-hidden rounded-full bg-muted"><div className={cn("h-full rounded-full", pct > 100 ? "bg-red-500" : color)} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} /></div>
       <span className="w-9 text-right text-xs tabular-nums">{pct}%</span>
     </div>
   )

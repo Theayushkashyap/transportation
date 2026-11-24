@@ -10,15 +10,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 const PRESETS = [
-  { label: "Baseline (rules v15)", desc: "Current business rules", p: DEFAULT_PARAMS },
-  { label: "Strict utilisation 70%", desc: "Defer anything below 70% load", p: { ...DEFAULT_PARAMS, minLoadPct: 70 } },
-  { label: "Relaxed – ship everything", desc: "No deferral of uneconomical loads", p: { ...DEFAULT_PARAMS, deferUneconomical: false } },
-  { label: "No order splitting", desc: "Splitting disabled", p: { ...DEFAULT_PARAMS, allowSplit: false } },
-  { label: "Cost-only (no company preference)", desc: "Pure lowest-cost selection", p: { ...DEFAULT_PARAMS, preferCompany: false } },
+  { label: "Prototype defaults", p: DEFAULT_PARAMS },
+  { label: "70% load threshold", p: { ...DEFAULT_PARAMS, minLoadPct: 70 } },
+  { label: "Skip economic deferral", p: { ...DEFAULT_PARAMS, deferUneconomical: false } },
+  { label: "No order splitting", p: { ...DEFAULT_PARAMS, allowSplit: false } },
+  { label: "No company preference", p: { ...DEFAULT_PARAMS, preferCompany: false } },
 ]
 
 export default function Scenarios() {
-  const { runs, optimize, plan } = useStore()
+  const { runs, optimize, plan, canOptimize } = useStore()
   const base = runs[0]
   const delta = (a: number, b: number, fmt: (n: number) => string, lowerBetter = true) => {
     if (!base || a === b) return null
@@ -27,11 +27,12 @@ export default function Scenarios() {
   }
   return (
     <>
-      <PageHeader title="Scenario simulation & comparison" desc="Run what-if scenarios against the same input snapshot and compare cost, utilisation and unplanned loads before choosing one to take forward." reqs="Plan simulation & comparison · reproducible runs" />
+      <PageHeader photo="scenarios" title="Scenario simulation & comparison" desc="Run a preset against the current sample deliveries, vehicle availability and exceptions, then compare the results." />
       <Card className="mb-4">
-        <CardHeader><CardTitle>Run a scenario</CardTitle><CardDescription>Each run is stored with its parameters and rule version. The last 5 runs are compared below (vs. first run).</CardDescription></CardHeader>
+        <CardHeader><CardTitle>Run a scenario</CardTitle><CardDescription>The last 5 runs are shown for this session. Deltas compare against the oldest displayed run. A preset run becomes the current draft.</CardDescription></CardHeader>
         <CardContent className="flex flex-wrap gap-2">
-          {PRESETS.map((s) => <Button key={s.label} variant="outline" onClick={() => { optimize(s.label, s.p); toast.success(`${s.label} complete`) }}><Play />{s.label}</Button>)}
+          {!canOptimize && <p className="w-full text-sm text-muted-foreground">Reopen the current plan in Dispatch planning to run another scenario.</p>}
+          {PRESETS.map((s) => <Button key={s.label} variant="outline" disabled={!canOptimize} onClick={() => { optimize(s.label, s.p); toast.success(`${s.label} complete`) }}><Play />{s.label}</Button>)}
         </CardContent>
       </Card>
       <Card><CardContent>

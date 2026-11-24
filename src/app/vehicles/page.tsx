@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 export default function Vehicles() {
-  const { vehicles, setVehicleStatus, plan, ctx } = useStore()
+  const { vehicles, setVehicleStatus, plan } = useStore()
   const [own, setOwn] = useState("all")
   const [sp, setSp] = useState("all")
   const rows = vehicles.filter((v) => (own === "all" || v.ownership === own) && (sp === "all" || v.location === sp))
@@ -19,7 +19,7 @@ export default function Vehicles() {
   const avail = vehicles.filter((v) => v.status === "Available")
   return (
     <>
-      <PageHeader title="Vehicles & availability" desc="Fleet master plus today's availability from the fleet system and transporter API. Rated and usable capacity are tracked separately." reqs="INT-02, INT-03 · availability, conflict prevention, manual correction" />
+      <PageHeader photo="fleet" title="Vehicles & availability" desc="Sample fleet and editable availability. Rated and usable capacity are shown separately." />
       <div className="mb-4 grid gap-3 sm:grid-cols-4">
         {[["Total", vehicles.length], ["Available", avail.length], ["Company available", avail.filter((v) => v.ownership === "Company").length], ["Market available", avail.filter((v) => v.ownership === "Market").length]].map(([l, n]) => (
           <div key={l} className="rounded-xl border p-4"><div className="text-xs text-muted-foreground">{l}</div><div className="mt-1 text-2xl font-semibold tabular-nums">{n}</div></div>
@@ -58,7 +58,6 @@ export default function Vehicles() {
             })}
           </TableBody>
         </Table>
-        {plan && <p className="mt-3 text-xs text-muted-foreground">{Object.keys(ctx.vehicles).length} vehicles in snapshot. Vehicles already in a plan cannot be double-allocated.</p>}
       </CardContent></Card>
     </>
   )
