@@ -61,6 +61,7 @@ export default function Deliveries() {
   const { deliveries, customers, params, exceptions, grantException, plan, ctx, status } = useStore()
   const [q, setQ] = useState("")
   const [sp, setSp] = useState("all")
+  const [stateF, setStateF] = useState("all")
   const [filter, setFilter] = useState<Filter>("All")
   const [selectedId, setSelectedId] = useState<string | null | undefined>(undefined)
   const [page, setPage] = useState(0)
@@ -75,7 +76,7 @@ export default function Deliveries() {
     const stage: Stage = validation.state === "Excluded" ? "Excluded" : validation.state === "Blocked" ? "Blocked" : allocatedKg >= d.weightKg && allocations.length ? "Planned" : allocations.length ? "Partial" : "Unplanned"
     return { d, c, validation, allocations, allocatedKg, stage }
   })
-  const scoped = all.filter(r => (sp === "all" || r.d.shippingPoint === sp) && (r.d.id + " " + r.d.salesOrder + " " + r.c.name + " " + r.c.city + " " + r.c.state + " " + r.stage + " " + r.allocations.map(a => a.vehicle?.reg ?? "").join(" ")).toLowerCase().includes(q.trim().toLowerCase()))
+  const scoped = all.filter(r => (sp === "all" || r.d.shippingPoint === sp) && (stateF === "all" || r.c.state === stateF) && (r.d.id + " " + r.d.salesOrder + " " + r.c.name + " " + r.c.city + " " + r.c.state + " " + r.stage + " " + r.allocations.map(a => a.vehicle?.reg ?? "").join(" ")).toLowerCase().includes(q.trim().toLowerCase()))
   const counts = Object.fromEntries(stages.map(k => [k, k === "All" ? scoped.length : scoped.filter(r => r.stage === k).length])) as Record<Filter, number>
   const rows = scoped.filter(r => filter === "All" || r.stage === filter)
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
@@ -103,6 +104,7 @@ export default function Deliveries() {
           </nav>
           <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-4">
             <select aria-label="Shipping point" value={sp} onChange={e => {setSp(e.target.value);resetSelection()}} className="max-w-full rounded border bg-card px-3 py-2 text-xs"><option value="all">All shipping points</option>{SHIPPING_POINTS.map(p => <option key={p.id} value={p.id}>{p.id} · {p.name}</option>)}</select>
+            <select aria-label="Destination state" value={stateF} onChange={e => {setStateF(e.target.value);resetSelection()}} className="max-w-full rounded border bg-card px-3 py-2 text-xs"><option value="all">All destination states</option>{Array.from(new Set(customers.map(c => c.state))).sort().map(state => <option key={state} value={state}>{state}</option>)}</select>
             <span className="text-xs text-muted-foreground">{rows.length} deliveries</span>
           </div>
           <div className="grid min-w-0 grid-cols-1 gap-2.5 p-5 sm:grid-cols-2">
