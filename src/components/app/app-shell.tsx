@@ -19,8 +19,7 @@ const NAV = [
     { href: "/", label: "Overview", icon: Home },
     { href: "/planning", label: "Dispatch planning", icon: Route },
     { href: "/deliveries", label: "Deliveries", icon: Package },
-    { href: "/vehicles", label: "Fleet & vehicles", icon: Truck },
-    { href: "/execution", label: "Execution demo", icon: Radar },
+    { href: "/vehicles", label: "Fleet & vehicles", icon: Truck }, 
   ] },
   { group: "Planning tools", items: [
     { href: "/scenarios", label: "Scenarios", icon: GitCompare },
