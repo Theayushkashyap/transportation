@@ -55,7 +55,7 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
   return <section className="min-w-0 rounded-md border bg-card p-4"><h3 className="mb-4 text-sm font-semibold">{title}</h3>{children}</section>
 }
 
-const PAGE_SIZE = 12
+const PAGE_SIZE = 6
 
 export default function Deliveries() {
   const { deliveries, customers, params, exceptions, grantException, plan, ctx, status } = useStore()
@@ -92,8 +92,8 @@ export default function Deliveries() {
 
   return (
     <div className="min-w-0 overflow-hidden rounded-lg border bg-card">
-      <div className="grid min-w-0 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)]">
-        <section aria-label="Deliveries" className="min-w-0 bg-muted/40 xl:border-r">
+      <div className="grid min-w-0 xl:h-[calc(100dvh-3.25rem)] xl:grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)] xl:overflow-hidden">
+        <section aria-label="Deliveries" className="min-w-0 bg-muted/40 xl:min-h-0 xl:overflow-y-auto xl:border-r">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card px-5 py-5">
             <div><h1 className="text-3xl font-semibold tracking-tight">Deliveries</h1><p className="mt-1 text-[11px] text-muted-foreground">Outbound shipments · Prototype data</p></div>
             <div className="relative min-w-0 flex-1 sm:min-w-44"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><input aria-label="Search deliveries" value={q} onChange={e => {setQ(e.target.value);resetSelection()}} placeholder="Search ID, customer, city…" className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none focus:border-primary" /></div>
@@ -110,14 +110,14 @@ export default function Deliveries() {
               const a = r.allocations[0]
               const active = selected?.d.id === r.d.id
               return <button type="button" key={r.d.id} onClick={() => selectDelivery(r.d.id)} aria-pressed={active} className={"min-w-0 overflow-hidden rounded-md border bg-card text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 " + (active ? "border-foreground ring-1 ring-foreground" : "hover:border-muted-foreground/60")}>
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3.5"><span className="text-base font-semibold tracking-tight">#{r.d.id}</span><Status stage={r.stage} /></div>
-                <div className="relative min-h-36 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3.5"><span className="text-lg font-semibold tracking-tight">#{r.d.id}</span><Status stage={r.stage} /></div>
+                <div className="relative min-h-40 p-4">
                   <div className="mb-3 min-w-0"><div className="text-[11px] text-muted-foreground">Delivery destination</div><div className="truncate text-xs font-medium" title={r.c.name}>{r.c.name}</div><div className="truncate text-xs text-muted-foreground">{r.c.city}, {r.c.state}</div></div>
                   <div className="relative z-10 w-[64%] space-y-2">
                     <div><div className="text-[11px] text-muted-foreground">{a ? "Planned ETA" : "Requested date"}</div><div className="text-xs font-medium">{a ? fmtHour(a.t.etas[a.index]) : formatPlanDate(r.d.deliveryDate)}</div></div>
                     <div><div className="text-[11px] text-muted-foreground">Assigned vehicle</div><div className="break-words text-xs font-medium">{a?.vehicle?.reg ?? "Not allocated"}</div></div>
                   </div>
-                  <div className="pointer-events-none absolute bottom-2 right-1 h-16 w-[45%]">{a ? <TruckProfile type={a.vehicle?.type} /> : <span className="flex h-full items-end justify-end pr-2 text-[11px] text-muted-foreground">{(r.d.weightKg / 1000).toFixed(2)} T</span>}</div>
+                  <div className="pointer-events-none absolute bottom-2 right-1 h-[76px] w-[45%]">{a ? <TruckProfile type={a.vehicle?.type} /> : <span className="flex h-full items-end justify-end pr-2 text-[11px] text-muted-foreground">{(r.d.weightKg / 1000).toFixed(2)} T</span>}</div>
                 </div>
               </button>
             })}
@@ -125,9 +125,9 @@ export default function Deliveries() {
           </div>
           <footer className="flex flex-wrap items-center justify-between gap-2 border-t px-5 py-3 text-xs text-muted-foreground"><span>{rows.length ? activePage * PAGE_SIZE + 1 : 0}–{Math.min((activePage + 1) * PAGE_SIZE, rows.length)} of {rows.length}</span><div className="flex items-center gap-2"><Button size="icon-sm" variant="outline" aria-label="Previous page" disabled={activePage === 0} onClick={() => {setPage(activePage-1);setSelectedId(undefined);setTripId(null);setMapOpen(false)}}><ChevronLeft /></Button><span>Page {activePage+1} / {pages}</span><Button size="icon-sm" variant="outline" aria-label="Next page" disabled={activePage+1 >= pages} onClick={() => {setPage(activePage+1);setSelectedId(undefined);setTripId(null);setMapOpen(false)}}><ChevronRight /></Button></div></footer>
         </section>
-        <section id="shipment-details" aria-label="Shipment details" className="min-w-0 bg-card xl:sticky xl:top-0 xl:self-start">
+        <section id="shipment-details" aria-label="Shipment details" className="min-w-0 bg-card xl:min-h-0 xl:overflow-y-auto">
           {selected ? <>
-            <header className="flex items-center justify-between gap-3 border-b px-5 py-5"><div className="min-w-0"><h2 className="truncate text-xl font-semibold tracking-tight">Shipment #{selected.d.id}</h2><p className="mt-1 text-xs text-muted-foreground">SO {selected.d.salesOrder}</p></div><Button size="icon-sm" variant="outline" aria-label="Close shipment details" onClick={() => setSelectedId(null)}><X /></Button></header>
+            <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-card px-5 py-5"><div className="min-w-0"><h2 className="truncate text-xl font-semibold tracking-tight">Shipment #{selected.d.id}</h2><p className="mt-1 text-xs text-muted-foreground">SO {selected.d.salesOrder}</p></div><Button size="icon-sm" variant="outline" aria-label="Close shipment details" onClick={() => setSelectedId(null)}><X /></Button></header>
             <div className="min-w-0 space-y-3 p-5">
               <section className="relative min-w-0 rounded-md border bg-card p-4">
                 <div className="mb-5 flex flex-wrap items-center justify-between gap-2"><h3 className="text-xl font-semibold tracking-tight">#{selected.d.id}</h3><Status stage={selected.stage} /></div>
