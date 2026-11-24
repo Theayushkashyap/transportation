@@ -1,14 +1,16 @@
 "use client"
 
 import { useState } from "react"
+import Image from "next/image"
 import { ShieldCheck, Weight, Box, Wallet, CalendarDays, MapPin, Truck, ArrowDown } from "lucide-react"
 import { toast } from "sonner"
 import { useStore } from "@/lib/store"
-import { Delivery, fmtHour, inr, SHIPPING_POINTS } from "@/lib/data"
+import { Delivery, fmtHour, inr, SHIPPING_POINTS, VEHICLE_TYPES, type VehicleTypeName } from "@/lib/data"
+import { VEHICLE_PHOTO } from "@/lib/tracking"
+import { VehiclePhoto } from "@/components/app/vehicle-photo"
 import { validateDelivery } from "@/lib/optimizer"
-import { PageHeader, Tag } from "@/components/app/bits"
+import { Tag } from "@/components/app/bits"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
@@ -18,61 +20,168 @@ export default function Deliveries() {
   const { deliveries, customers, params, exceptions, grantException, plan } = useStore()
   const [q, setQ] = useState("")
   const [sp, setSp] = useState("all")
-  const [st, setSt] = useState("all")
   const [sel, setSel] = useState<Delivery | null>(null)
   const cust = (id: string) => customers.find((c) => c.id === id)!
-  const rows = deliveries
-    .map((d) => ({ d, c: cust(d.customerId), v: validateDelivery(d, cust(d.customerId), params, exceptions) }))
-    .filter((r) => (sp === "all" || r.d.shippingPoint === sp) && (st === "all" || r.v.state === st) && (q === "" || (r.d.id + r.c.name + r.c.city).toLowerCase().includes(q.toLowerCase())))
   const counts = { Eligible: 0, Blocked: 0, Excluded: 0 }
   deliveries.forEach((d) => counts[validateDelivery(d, cust(d.customerId), params, exceptions).state]++)
   const sd = sel && { c: cust(sel.customerId), v: validateDelivery(sel, cust(sel.customerId), params, exceptions) }
   const plannedIn = (id: string) => plan?.trips.filter((t) => t.stops.some((s) => s.deliveryId === id)).map((t) => t.id)
 
+  const [tab, setTab] = useState<"all" | "Eligible" | "Blocked" | "Excluded">("all")
+  const [stateF, setStateF] = useState("")
+  const [focusId, setFocusId] = useState<string | null>(null)
+  const all = deliveries.map((d) => ({ d, c: cust(d.customerId), v: validateDelivery(d, cust(d.customerId), params, exceptions) }))
+  const list = all.filter((r) => (sp === "all" || r.d.shippingPoint === sp) && (stateF === "" || r.c.state === stateF) && (q === "" || (r.d.id + r.c.name + r.c.city).toLowerCase().includes(q.toLowerCase())))
+  const tableRows = list.filter((r) => tab === "all" || r.v.state === tab)
+  const focus = all.find((r) => r.d.id === focusId) ?? tableRows[0] ?? all[0]
+  const byState = Object.entries(all.reduce<Record<string, number>>((m, r) => ((m[r.c.state] = (m[r.c.state] ?? 0) + 1), m), {})).sort((x, y) => y[1] - x[1])
+  const maxState = byState[0]?.[1] ?? 1
+  const eligiblePct = all.length ? Math.round((counts.Eligible / all.length) * 100) : 0
+  const maxKg = Math.max(...all.map((r) => r.d.weightKg), 1)
+  const fit = (d: Delivery): VehicleTypeName => (Object.values(VEHICLE_TYPES).find((t) => t.usableKg >= d.weightKg && t.volM3 >= d.volumeM3) ?? VEHICLE_TYPES["MCV 16T"]).name
+  const open = (r: (typeof all)[number]) => { setFocusId(r.d.id); setSel(r.d) }
+
+  const hero = (() => {
+    if (!focus) return null
+    const { d, c, v } = focus
+    const vt = VEHICLE_TYPES[fit(d)]
+    const wPct = Math.min(1, d.weightKg / vt.usableKg)
+    const vPct = Math.min(1, d.volumeM3 / vt.volM3)
+    const origin = SHIPPING_POINTS.find((p) => p.id === d.shippingPoint)
+    const pts = d.items.reduce<number[]>((a, i) => [...a, (a.at(-1) ?? 0) + i.weightKg], [])
+    const series = pts.length > 1 ? pts : [0, pts[0] ?? 0]
+    const top = Math.max(...series, 1)
+    const xy = series.map((y, i) => [(i / (series.length - 1)) * 200, 54 - (y / top) * 44] as const)
+    const line = xy.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`).join(" ")
+    return { d, c, v, vt, wPct, vPct, origin, line, area: `${line} L200 60 L0 60 Z`, last: xy[xy.length - 1] }
+  })()
+
   return (
-    <>
-      <PageHeader
-        photo="deliveries"
-        title="Deliveries"
-        desc="Sample outbound deliveries with eligibility checks for planning."
-      />
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
-        {(["Eligible", "Blocked", "Excluded"] as const).map((k) => (
-          <button key={k} onClick={() => setSt(st === k ? "all" : k)} className={`rounded-xl border p-4 text-left transition-colors ${st === k ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}>
-            <div className="text-xs text-muted-foreground">{k === "Eligible" ? "Eligible for planning" : k === "Blocked" ? "Blocked – action needed" : "Excluded (SAP status)"}</div>
-            <div className="mt-1 text-2xl font-semibold tabular-nums">{counts[k]}</div>
+    <div className="dlv">
+      <div className="dlv-title">
+        <div><h1>Deliveries</h1><p>Outbound deliveries with eligibility checks for planning.</p></div>
+        <span className="dlv-muted">{counts.Eligible} eligible · {counts.Blocked} blocked · {counts.Excluded} excluded</span>
+      </div>
+
+      {hero && (
+        <section className="dlv-hero" aria-label="Selected delivery">
+          <div className="dlv-left">
+            <div className="dlv-card">
+              <div className="dlv-id"><h2>#{hero.d.id}</h2><span className="dlv-pill" data-s={hero.v.state}>{hero.v.state}</span></div>
+              <div className="dlv-stats"><span>{(hero.d.weightKg / 1000).toFixed(2)} T</span><span>{hero.d.items.length} items</span><span>Due {hero.d.deliveryDate.slice(5)}</span></div>
+              <div className="dlv-progress" role="img" aria-label={`${Math.round(hero.wPct * 100)}% of ${hero.vt.name} usable weight`}><i style={{ width: `${hero.wPct * 100}%` }} /></div>
+              <div className="dlv-route">
+                <div><i />{hero.origin?.name ?? hero.d.shippingPoint}, {hero.origin?.state}</div>
+                <div><i />{hero.c.name}, {hero.c.city}</div>
+              </div>
+            </div>
+            <div className="dlv-card">
+              <div className="dlv-perf"><span style={{ fontSize: "1rem" }}>Eligibility</span><span className="dlv-muted">{all.length} deliveries</span></div>
+              <div className="dlv-bars" role="img" aria-label={`${eligiblePct}% of deliveries eligible`}>
+                {all.map((r) => <i key={r.d.id} data-s={r.v.state} data-on={r.d.id === hero.d.id} style={{ height: `${25 + (r.d.weightKg / maxKg) * 75}%` }} />)}
+              </div>
+              <div className="dlv-perf" style={{ marginTop: ".5rem" }}><span className="dlv-muted">Bar height = weight</span><strong>{eligiblePct}%</strong></div>
+            </div>
+            <div className="dlv-card dlv-contact">
+              <span className="dlv-avatar" aria-hidden="true">{hero.c.name.slice(0, 1)}</span>
+              <div className="min-w-0"><b className="truncate">{hero.c.name}</b><span className="dlv-muted">{hero.c.category} · {hero.c.window}</span></div>
+            </div>
+          </div>
+
+          <div className="dlv-stage">
+            <Image src={VEHICLE_PHOTO[hero.vt.name].src} alt={`${VEHICLE_PHOTO[hero.vt.name].model} ${hero.vt.name}`} fill sizes="(min-width:1024px) 40vw, 100vw" priority />
+            <div className="dlv-stage-cap"><div><span style={{ opacity: .75 }}>Best-fit vehicle</span><strong>{hero.vt.name} · {VEHICLE_PHOTO[hero.vt.name].model}</strong></div><span>{hero.vt.usableKg / 1000}T usable · {hero.vt.volM3} m³</span></div>
+          </div>
+
+          <div className="dlv-right">
+            <div className="dlv-card dlv-tile-green">
+              <Weight className="icon" size={30} aria-hidden="true" />
+              <strong>{(hero.d.weightKg / 1000).toFixed(1)}/{hero.vt.usableKg / 1000}T</strong>
+              <span>{(hero.wPct * 100).toFixed(1)}%</span>
+            </div>
+            <div className="dlv-card dlv-gauge">
+              <div style={{ fontSize: "1rem", textAlign: "left" }}>Volume load</div>
+              <svg viewBox="0 0 200 110" aria-hidden="true">
+                <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="#f6e3bd" strokeWidth="14" strokeLinecap="round" pathLength="100" />
+                <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="#f2b560" strokeWidth="14" strokeLinecap="round" pathLength="100" strokeDasharray={`${Math.max(hero.vPct * 100, 1)} 100`} />
+              </svg>
+              <b>{hero.d.volumeM3.toFixed(1)} m³</b>
+              <small>{Math.round(hero.vPct * 100)}% of {hero.vt.volM3} m³</small>
+            </div>
+            <div className="dlv-card dlv-value">
+              <h3>Order value</h3>
+              <strong>{inr(hero.d.value)}</strong>
+              <svg viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
+                <path d={hero.area} fill="#a78bfa33" />
+                <path d={hero.line} fill="none" stroke="#a78bfa" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
+              </svg>
+              <div className="dlv-muted">Cumulative weight across {hero.d.items.length} line items</div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <div className="dlv-strip" role="group" aria-label="Deliveries">
+        {list.map((r) => (
+          <button key={r.d.id} type="button" className="dlv-chip" aria-pressed={focus?.d.id === r.d.id} onClick={() => setFocusId(r.d.id)}>
+            <i className="dlv-dot" data-s={r.v.state} />
+            <div><b>#{r.d.id}</b><small>{r.c.name}</small><small>{(r.d.weightKg / 1000).toFixed(2)} T · {r.d.volumeM3.toFixed(1)} m³</small></div>
+            <VehiclePhoto type={fit(r.d)} className="dlv-chip-img w-20" sizes="84px" />
           </button>
         ))}
+        {list.length === 0 && <div className="dlv-empty">No deliveries match these filters.</div>}
       </div>
-      <Card>
-        <CardContent>
-          <div className="mb-3 flex flex-wrap items-center gap-2">
+
+      <div className="dlv-bottom">
+        <section className="dlv-card" aria-label="Distribution by state">
+          <div className="dlv-head"><h2>Distribution</h2>{stateF && <Button size="xs" variant="ghost" onClick={() => setStateF("")}>Clear</Button>}</div>
+          <div className="dlv-dist">
+            {byState.map(([name, n]) => (
+              <button key={name} type="button" aria-pressed={stateF === name} onClick={() => setStateF(stateF === name ? "" : name)}>
+                <span>{name}</span><span className="bar"><i style={{ width: `${(n / maxState) * 100}%` }} /></span><b>{n}</b>
+              </button>
+            ))}
+          </div>
+          <div className="dlv-sum">
+            <div><span className="dlv-muted">Total deliveries</span><b>{all.length}</b></div>
+            <div><span className="dlv-muted">Eligible</span><b>{eligiblePct}%</b></div>
+            <div><span className="dlv-muted">High priority</span><b>{all.filter((r) => r.d.priority === "High").length}</b></div>
+          </div>
+        </section>
+
+        <section className="dlv-card" aria-label="Orders">
+          <div className="dlv-head">
+            <h2>Orders<span className="dlv-count">{tableRows.length}</span></h2>
+            <div className="dlv-tabs">
+              {(["all", "Eligible", "Blocked", "Excluded"] as const).map((k) => (
+                <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(k)}>{k === "all" ? "All" : k}<em>{k === "all" ? list.length : list.filter((r) => r.v.state === k).length}</em></button>
+              ))}
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Input className="w-64" aria-label="Search deliveries" placeholder="Search delivery, customer, city…" value={q} onChange={(e) => setQ(e.target.value)} />
             <Select items={{ all: "All shipping points", ...Object.fromEntries(SHIPPING_POINTS.map((s) => [s.id, `${s.id} · ${s.name}`])) }} value={sp} onValueChange={(v) => setSp(v ?? "all")}>
               <SelectTrigger className="w-40"><SelectValue placeholder="Shipping point" /></SelectTrigger>
               <SelectContent><SelectItem value="all">All shipping points</SelectItem>{SHIPPING_POINTS.map((s) => <SelectItem key={s.id} value={s.id}>{s.id} · {s.name}</SelectItem>)}</SelectContent>
             </Select>
-            <span className="ml-auto text-xs text-muted-foreground">{rows.length} shown</span>
           </div>
-          <Table>
-            <TableHeader><TableRow><TableHead>Delivery</TableHead><TableHead>Customer</TableHead><TableHead>Origin</TableHead><TableHead className="text-right">Weight</TableHead><TableHead className="text-right">Volume</TableHead><TableHead>Due</TableHead><TableHead>Appointment</TableHead><TableHead>Validation</TableHead></TableRow></TableHeader>
-            <TableBody>
-              {rows.map(({ d, c, v }) => (
-                <TableRow key={d.id} className={`cursor-pointer ${sel?.id === d.id ? "bg-primary/5" : ""}`} onClick={() => setSel(d)}>
-                  <TableCell className="font-mono text-xs"><button type="button" className="cursor-pointer font-semibold text-primary hover:underline" aria-label={`Open delivery ${d.id}`}>{d.id}</button>{d.modifiedAfterPlanning && <Tag tone="amber" className="ml-2">Changed</Tag>}</TableCell>
-                  <TableCell><div className="max-w-60 truncate text-sm">{c.name}</div><div className="text-xs text-muted-foreground">{c.city}, {c.state} · {c.category}</div></TableCell>
-                  <TableCell className="text-xs">{d.shippingPoint}</TableCell>
-                  <TableCell className="text-right tabular-nums">{(d.weightKg / 1000).toFixed(2)} T</TableCell>
-                  <TableCell className="text-right tabular-nums">{d.volumeM3.toFixed(1)} m³</TableCell>
-                  <TableCell className="text-xs">{d.deliveryDate.slice(5)} {d.priority === "High" && <Tag tone="red">High</Tag>}</TableCell>
-                  <TableCell className="text-xs">{d.appointment ? <>{d.appointment.date.slice(5)} {d.appointment.start}–{d.appointment.end} <Tag tone={d.appointment.status === "Confirmed" ? "green" : "amber"}>{d.appointment.status}</Tag></> : c.requiresAppointment ? <Tag tone="red">Missing</Tag> : <span className="text-muted-foreground">n/a</span>}</TableCell>
-                  <TableCell>{v.state === "Eligible" ? <Tag tone="green">Eligible{exceptions.has(d.id) ? " (exception)" : ""}</Tag> : <div><Tag tone={v.state === "Blocked" ? "red" : "gray"}>{v.state}</Tag><div className="mt-0.5 max-w-52 text-xs text-muted-foreground">{v.issues[0]}</div></div>}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+          <div className="dlv-table">
+            <div className="dlv-cols" aria-hidden="true"><span>Delivery</span><span>Customer</span><span>Origin</span><span>Destination</span><span>Due</span><span>Appointment</span><span>Status</span></div>
+            {tableRows.map((r) => (
+              <button key={r.d.id} type="button" className="dlv-row" aria-current={focus?.d.id === r.d.id} aria-label={`Open delivery ${r.d.id}`} onClick={() => open(r)}>
+                <span className="id">{r.d.id}{r.d.modifiedAfterPlanning && <Tag tone="amber" className="ml-1.5">Changed</Tag>}</span>
+                <span className="min-w-0"><span className="block truncate">{r.c.name}</span><small>{r.c.category}</small></span>
+                <span>{r.d.shippingPoint}</span>
+                <span>{r.c.city}, {r.c.state}</span>
+                <span>{r.d.deliveryDate.slice(5)} {r.d.priority === "High" && <Tag tone="red">High</Tag>}</span>
+                <span>{r.d.appointment ? <>{r.d.appointment.date.slice(5)}<small>{r.d.appointment.status}</small></> : r.c.requiresAppointment ? <Tag tone="red">Missing</Tag> : <span className="text-muted-foreground">n/a</span>}</span>
+                <span><span className="dlv-pill" data-s={r.v.state}>{r.v.state === "Eligible" && exceptions.has(r.d.id) ? "Exception" : r.v.state}</span></span>
+              </button>
+            ))}
+            {tableRows.length === 0 && <div className="dlv-empty">No deliveries in this view.</div>}
+          </div>
+        </section>
+      </div>
 
       <Sheet open={!!sel} onOpenChange={(o) => !o && setSel(null)}>
         <SheetContent className="w-full !gap-0 overflow-hidden sm:!max-w-[680px]" overlayClassName="bg-black/20 !backdrop-blur-none">
@@ -144,6 +253,6 @@ export default function Deliveries() {
           )}
         </SheetContent>
       </Sheet>
-    </>
+    </div>
   )
 }
