@@ -1,9 +1,11 @@
 "use client"
 
+import { useState } from "react"
 import Image from "next/image"
+import { DispatchMap } from "@/components/app/dispatch-map"
 import Link from "next/link"
 import { toast } from "sonner"
-import { Gauge, MapPin, Route as RouteIcon, ShieldCheck, Wrench } from "lucide-react"
+import { Gauge, MapPin, ShieldCheck, Wrench } from "lucide-react"
 import { useStore } from "@/lib/store"
 import { ALL_STATES, SHIPPING_POINTS, VEHICLE_TYPES, fmtHour, inr, type Vehicle } from "@/lib/data"
 import { VEHICLE_PHOTO } from "@/lib/tracking"
@@ -16,30 +18,62 @@ const Spec = ({ l, v }: { l: string; v: React.ReactNode }) => (
 )
 
 export function VehicleDialog({ vehicle, onClose }: { vehicle: Vehicle | null; onClose: () => void }) {
-  const { plan, ctx, setVehicleStatus } = useStore()
-  const v = vehicle
+  const { plan, ctx, vehicles, setVehicleStatus } = useStore()
+  const [selection, setSelection] = useState<{ origin: string; id: string } | null>(null)
+  const v = vehicle && (selection?.origin === vehicle.id ? vehicles.find(x => x.id === selection.id) ?? vehicle : vehicle)
+  const close = () => { setSelection(null); onClose() }
   const t = v ? VEHICLE_TYPES[v.type] : null
   const trip = v ? plan?.trips.find((x) => x.vehicleId === v.id) : undefined
   const sp = v ? SHIPPING_POINTS.find((s) => s.id === v.location) : undefined
+  const stops = trip?.stops ?? []
+  const routeCustomers = stops.map(s => ctx.customers[ctx.deliveries[s.deliveryId].customerId])
   const tone = v?.status === "Available" ? "green" : v?.status === "Assigned" ? "amber" : "red"
   return (
-    <Dialog open={!!v} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90vh] gap-0 overflow-y-auto p-0 sm:max-w-2xl">
+    <Dialog open={!!v} onOpenChange={(o) => !o && close()}>
+      <DialogContent className="max-h-[90vh] gap-0 overflow-y-auto p-0 sm:!max-w-[1440px] !max-h-[94dvh] bg-muted/30">
         {v && t && (
           <>
-            <div className="relative aspect-[16/8] w-full overflow-hidden rounded-t-xl bg-muted">
-              <Image src={VEHICLE_PHOTO[v.type].src} alt={`${VEHICLE_PHOTO[v.type].model} ${v.type}`} fill sizes="672px" className="object-cover" priority />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
-              <div className="absolute inset-x-5 bottom-4 flex items-end justify-between gap-3 text-white">
-                <div>
-                  <DialogTitle className="font-mono text-xl font-semibold tracking-wide">{v.reg}</DialogTitle>
-                  <DialogDescription className="text-white/75">{VEHICLE_PHOTO[v.type].model} · {v.type} · {v.id}</DialogDescription>
-                </div>
-                <div className="flex gap-1.5"><Tag tone={v.ownership === "Company" ? "blue" : "amber"}>{v.ownership}</Tag><Tag tone={tone}>{v.status}</Tag></div>
+            <header className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-5 pr-14">
+              <div><div className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Vehicle workspace</div><DialogTitle className="text-2xl font-semibold">{v.reg}</DialogTitle><DialogDescription className="mt-1">{VEHICLE_PHOTO[v.type].model} · {v.type} · {v.id}</DialogDescription></div>
+              <div className="flex gap-2"><Tag tone={v.ownership === "Company" ? "blue" : "amber"}>{v.ownership}</Tag><Tag tone={tone}>{v.status}</Tag></div>
+            </header>
+            <div className="grid gap-4 bg-muted/30 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)_minmax(0,1fr)]">
+              <div className="space-y-3">
+                <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">Current assignment</div><div className="mt-2 text-lg font-semibold">{trip?.id ?? "Unallocated"}</div><div className="mt-2 text-xs text-muted-foreground">{trip ? `${Math.round(trip.distanceKm)} km · ${trip.stops.length} stops` : "No assigned trip"}</div><div className="mt-4 border-t pt-3 text-sm"><div className="text-xs text-muted-foreground">Depot</div>{sp?.name ?? v.location}<div className="mt-2 text-xs text-muted-foreground">Ready from {fmtHour(v.availableFromH)}</div></div></div>
+                <Spec l="Planned departure" v={trip ? fmtHour(trip.startH) : "—"} />
+                <Spec l="Final planned stop" v={routeCustomers[routeCustomers.length - 1]?.city ?? "—"} />
+              </div>
+              <div className="relative min-h-72 overflow-hidden rounded-xl bg-muted/40"><Image src={VEHICLE_PHOTO[v.type].src} alt={`${VEHICLE_PHOTO[v.type].model} representative vehicle`} fill sizes="(min-width:1024px) 700px, 90vw" className="object-contain" /><span className="absolute bottom-2 left-2 rounded bg-background/90 px-2 py-1 text-[10px] text-muted-foreground">Representative vehicle image</span></div>
+              <div className="space-y-3">
+                <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">Planned payload / usable capacity</div><div className="mt-2 text-2xl font-semibold tabular-nums">{trip ? (trip.weightKg / 1000).toFixed(2) : "0"} <span className="text-sm font-normal text-muted-foreground">/ {t.usableKg / 1000} T</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-violet-500" style={{width: `${Math.min(100, (trip?.weightKg ?? 0) / t.usableKg * 100)}%`}} /></div></div>
+                <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">Planned volume</div><div className="mt-1 text-xl font-semibold">{(trip?.volumeM3 ?? 0).toFixed(1)} <span className="text-xs font-normal text-muted-foreground">/ {t.volM3} m³</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-emerald-500" style={{width: `${Math.min(100, (trip?.volumeM3 ?? 0) / t.volM3 * 100)}%`}} /></div></div>
+                <Spec l="Estimated trip cost" v={trip ? inr(trip.cost) : "—"} />
               </div>
             </div>
-
-            <div className="space-y-5 p-5">
+            <section className="border-y bg-background/50 px-5 py-3" aria-label="Select another vehicle">
+              <div className="mb-2 flex items-center justify-between"><h3 className="text-xs font-medium text-muted-foreground">Browse fleet</h3><span className="text-xs text-muted-foreground">{vehicles.length} vehicles · scroll to browse</span></div>
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                {[v, ...vehicles.filter(x => x.id !== v.id)].map(x => (
+                  <button key={x.id} type="button" aria-pressed={x.id === v.id} onClick={() => setSelection({ origin: vehicle!.id, id: x.id })} className={`flex w-52 shrink-0 items-center gap-2 rounded-xl border p-2 text-left transition-colors ${x.id === v.id ? "border-primary bg-card ring-1 ring-primary/30" : "bg-card/60 hover:bg-card"}`}>
+                    <div className="min-w-0 flex-1"><div className="truncate font-semibold text-xs">{x.reg}</div><div className="mt-1 text-[11px] text-muted-foreground">{x.type} · {x.status}</div></div>
+                    <div className="relative h-12 w-20 shrink-0"><Image src={VEHICLE_PHOTO[x.type].src} alt="" fill sizes="80px" className="rounded object-contain" /></div>
+                  </button>
+                ))}
+              </div>
+            </section>
+            <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+              <section className="min-w-0 overflow-hidden rounded-xl border bg-card">
+                <div className="p-4"><h3 className="font-semibold">Planned route</h3><p className="mt-1 text-xs text-muted-foreground">{trip ? `${trip.stops.length} stops · ${Math.round(trip.distanceKm)} km estimated` : "No trip allocated"}</p></div>
+                {trip ? <DispatchMap key={trip.id} trips={[trip]} customers={routeCustomers} ctx={ctx} state="" /> : <div className="grid min-h-56 place-items-center bg-muted/30 text-xs text-muted-foreground">Route appears after allocation.</div>}
+              </section>
+              <section className="min-w-0 rounded-xl border bg-card p-4">
+                <div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">Assigned deliveries <span className="ml-1 text-xs text-muted-foreground">({stops.length})</span></h3>{trip && <Tag tone="gray">Planned</Tag>}</div>
+                {trip ? <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-muted/50 text-muted-foreground"><tr>{["Stop", "Delivery", "Customer", "Destination", "Load", "ETA"].map(h => <th key={h} scope="col" className="whitespace-nowrap px-2 py-2 font-medium">{h}</th>)}</tr></thead><tbody>{stops.map((s,i) => {const c = routeCustomers[i];return <tr key={s.key} className="border-b"><td className="px-2 py-3">{i+1}</td><td className="px-2 py-3 font-mono">{s.deliveryId}{s.part && <span className="block text-muted-foreground">Part {s.part.n}/{s.part.of}</span>}</td><td className="px-2 py-3 font-medium">{c.name}</td><td className="px-2 py-3">{c.city}</td><td className="whitespace-nowrap px-2 py-3">{(s.weightKg/1000).toFixed(2)} T</td><td className="whitespace-nowrap px-2 py-3">{fmtHour(trip.etas[i])}</td></tr>})}</tbody></table></div> : <div className="grid min-h-40 place-items-center rounded-lg bg-muted/30 text-xs text-muted-foreground">No deliveries assigned to this vehicle.</div>}
+                {trip && <UtilBar value={trip.util} className="mt-4" />}
+                {!!trip?.violations.length && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{trip.violations.join(" · ")}</p>}
+              </section>
+            </div>
+            <div className="space-y-5 px-5 pb-5">
               {v.statusNote && <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"><Wrench className="size-3.5 shrink-0" />{v.statusNote}</div>}
 
               <section>
@@ -70,24 +104,10 @@ export function VehicleDialog({ vehicle, onClose }: { vehicle: Vehicle | null; o
                 </div>
               </section>
 
-              <section>
-                <h3 className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground"><RouteIcon className="size-3.5" />Today&apos;s assignment</h3>
-                {trip ? (
-                  <div className="rounded-xl border p-3">
-                    <div className="flex items-center justify-between text-sm"><span className="font-semibold">{trip.id}</span><span className="text-xs text-muted-foreground">{trip.stops.length} stops · {Math.round(trip.distanceKm)} km · {inr(trip.cost)}</span></div>
-                    <UtilBar value={trip.util} className="mt-2" />
-                    <ol className="mt-3 space-y-1.5 border-l border-dashed border-primary/50 pl-4">
-                      {trip.stops.map((s, i) => { const c = ctx.customers[ctx.deliveries[s.deliveryId].customerId]; return <li key={s.key} className="relative text-xs"><span className="absolute -left-[21px] top-1 size-2 rounded-full bg-primary" /><span className="font-medium">{c.name}</span> <span className="text-muted-foreground">· {c.city} · ETA {fmtHour(trip.etas[i])} · {(s.weightKg / 1000).toFixed(1)}T</span></li> })}
-                    </ol>
-                    {trip.violations.length > 0 && <div className="mt-2 text-xs text-red-600 dark:text-red-400">{trip.violations.join(" · ")}</div>}
-                  </div>
-                ) : <div className="rounded-xl border border-dashed p-3 text-xs text-muted-foreground">{plan ? "Not used in the current plan." : "No plan generated yet."}</div>}
-              </section>
-
               <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
                 {trip && <Button variant="outline" render={<Link href="/planning" />}>Open in workbench</Button>}
                 {v.status !== "Assigned" && (
-                  <Button variant={v.status === "Available" ? "destructive" : "default"} onClick={() => { const next = v.status === "Available" ? "Unavailable" : "Available"; setVehicleStatus(v.id, next); toast(`${v.reg} marked ${next.toLowerCase()}`, { description: "Re-run optimization to apply. Correction logged." }); onClose() }}>{v.status === "Available" ? "Mark unavailable" : "Mark available"}</Button>
+                  <Button variant={v.status === "Available" ? "destructive" : "default"} onClick={() => { const next = v.status === "Available" ? "Unavailable" : "Available"; setVehicleStatus(v.id, next); toast(`${v.reg} marked ${next.toLowerCase()}`, { description: "Re-run optimization to apply. Correction logged." }); close() }}>{v.status === "Available" ? "Mark unavailable" : "Mark available"}</Button>
                 )}
               </div>
             </div>
