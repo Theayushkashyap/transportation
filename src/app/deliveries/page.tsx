@@ -43,7 +43,7 @@ function LocationPreview({ origin, destination, position, expanded }: { origin: 
   const cy=(Math.min(...pts.map(x=>x.y))+Math.max(...pts.map(x=>x.y)))/2
   const w=Math.max(90,Math.max(...pts.map(x=>x.x))-Math.min(...pts.map(x=>x.x))+42)
   const h=Math.max(65,Math.max(...pts.map(x=>x.y))-Math.min(...pts.map(x=>x.y))+42)
-  return <svg role="img" aria-label="Geographic preview showing depot, customer and approximate simulated vehicle position when available" viewBox={`${cx-w/2} ${cy-h/2} ${w} ${h}`} preserveAspectRatio="xMidYMid slice" className={`block w-full bg-[#123e36] ${expanded?"h-64":"h-36"}`}>
+  return <svg role="img" aria-label="Geographic preview showing depot, customer and approximate simulated vehicle position when available" viewBox={`${cx-w/2} ${cy-h/2} ${w} ${h}`} preserveAspectRatio="xMidYMid meet" className={`block w-full bg-[#123e36] ${expanded?"h-64":"h-36"}`}>
     <image href="/operations-map.webp" x="-120" y="-120" width="960" height="760"/>
     <path d={`M${a.x} ${a.y}L${b.x} ${b.y}`} stroke="#a9edb8" strokeWidth="2" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" fill="none"/>
     <circle cx={a.x} cy={a.y} r="3" fill="#60a5fa" stroke="white" strokeWidth=".8"/><circle cx={b.x} cy={b.y} r="3" fill="#86efac" stroke="white" strokeWidth=".8"/>
@@ -208,7 +208,7 @@ export default function Deliveries() {
               <Panel title={"Line items (" + selected.d.items.length + ")"}>
                 <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-muted text-muted-foreground"><tr><th scope="col" className="p-2 font-medium">Material</th><th scope="col" className="p-2 text-right font-medium">Qty</th><th scope="col" className="p-2 text-right font-medium">Weight</th></tr></thead><tbody>{selected.d.items.map((i,k)=><tr key={k} className="border-b"><td className="p-2">{i.description}<div className="text-[10px] text-muted-foreground">{i.material}</div></td><td className="whitespace-nowrap p-2 text-right">{i.qty} {i.uom}</td><td className="whitespace-nowrap p-2 text-right">{kg(i.weightKg)}</td></tr>)}</tbody></table></div>
               </Panel>
-              <p className="text-[11px] text-muted-foreground">Sample dispatch data. Vehicle photographs are representative; capacity examples are not allocations. Estimated times follow the plan-day clock; live GPS, driver performance and POD events are not connected.</p>
+              <p className="text-[11px] text-muted-foreground">Sample dispatch data. Photos are representative. Location markers are simulated from the draft plan at 11:30; dashed depot-to-customer lines are approximate, not road navigation. Live GPS and POD are not connected.</p>
             </div>
           </> : <div className="grid min-h-72 place-items-center p-8 text-center text-sm text-muted-foreground">Select a delivery to view its shipment details.</div>}
         </section>
