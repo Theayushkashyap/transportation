@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { CalendarDays, ClipboardList, FileCheck2, GitCompare, Home, LogOut, Menu, Package, Radar, Route, SlidersHorizontal, Truck } from "lucide-react"
+import { CalendarDays, GitCompare, Home, LogOut, Menu, Package, Route, SlidersHorizontal, Truck } from "lucide-react"
 import { ThemeToggle } from "@/components/app/theme-toggle"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
@@ -23,9 +23,7 @@ const NAV = [
   ] },
   { group: "Planning tools", items: [
     { href: "/scenarios", label: "Scenarios", icon: GitCompare },
-    { href: "/rules", label: "Business rules", icon: SlidersHorizontal },
-    { href: "/integrations", label: "Session activity", icon: FileCheck2 },
-    { href: "/scope", label: "Prototype coverage", icon: ClipboardList },
+    { href: "/rules", label: "Business rules", icon: SlidersHorizontal }, 
   ] },
 ]
 
