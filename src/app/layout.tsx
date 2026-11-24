@@ -4,6 +4,8 @@ import "./globals.css"
 import "./shell.css"
 import "./dashboard.css"
 import { StoreProvider } from "@/lib/store"
+import { ThemeProvider } from "next-themes"
+import { AuthProvider } from "@/lib/auth"
 import { AppShell } from "@/components/app/app-shell"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -17,12 +19,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full bg-background text-foreground">
-        <StoreProvider>
-          <AppShell>{children}</AppShell>
-        </StoreProvider>
-        <Toaster richColors position="bottom-right" />
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <AuthProvider>
+            <StoreProvider>
+              <AppShell>{children}</AppShell>
+            </StoreProvider>
+          </AuthProvider>
+          <Toaster richColors position="bottom-right" />
+        </ThemeProvider>
       </body>
     </html>
   )

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import Link from "next/link"
 import { ArrowRight, CalendarDays, ChevronDown, CircleAlert, Coins, Gauge, Layers3, Map as MapIcon, MapPin, Package, Play, Truck } from "lucide-react"
 import { DispatchMap } from "@/components/app/dispatch-map"
+import { LiveTracking } from "@/components/app/live-tracking"
 import { PageHeader, Tag, UtilBar } from "@/components/app/bits"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -23,6 +24,7 @@ const tonnes = (kg: number) => (kg / 1000).toLocaleString("en-IN", { maximumFrac
 export default function Dashboard() {
   const { plan, ctx, deliveries, customers, vehicles, status, canOptimize, optimize, params, exceptions, rulesVersion } = useStore()
   const [state, setState] = useState("")
+  const [showTracking, setShowTracking] = useState(false)
   const preview = useMemo(() => plan ?? runOptimization({ ...ctx, params }, "Preview", rulesVersion, new Date(PLAN_DATE)), [plan, ctx, params, rulesVersion])
   const stateCustomers = customers.filter((customer) => !state || customer.state === state)
   const states = Array.from(new Set(customers.map((customer) => customer.state))).sort()
@@ -175,6 +177,10 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+      <details className="mt-4 rounded-xl border bg-card p-4" onToggle={(event) => setShowTracking(event.currentTarget.open)}>
+        <summary className="cursor-pointer text-sm font-semibold">Detailed fleet tracking</summary>
+        {showTracking && <LiveTracking />}
+      </details>
     </div>
   )
 }

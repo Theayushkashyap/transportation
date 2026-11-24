@@ -1,13 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { CalendarDays, ClipboardList, FileCheck2, GitCompare, Home, Menu, Package, Radar, Route, SlidersHorizontal, Truck } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { CalendarDays, ClipboardList, FileCheck2, GitCompare, Home, LogOut, Menu, Package, Radar, Route, SlidersHorizontal, Truck } from "lucide-react"
+import { ThemeToggle } from "@/components/app/theme-toggle"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Tag } from "@/components/app/bits"
+import { useAuth, type User } from "@/lib/auth"
 import { PLAN_DATE, formatPlanDate } from "@/lib/data"
 import { useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
@@ -57,10 +59,45 @@ function Navigation({ path, onNavigate }: { path: string; onNavigate?: () => voi
   )
 }
 
+const PUBLIC = ["/login", "/signup"]
+
+function SessionControls({ user, onSignOut }: { user: User; onSignOut: () => void }) {
+  return (
+    <div className="relative space-y-2 rounded-lg border border-white/15 bg-[#142f39] p-2.5">
+      <ThemeToggle className="bg-card" />
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-medium">{user.name}</div>
+          <div className="truncate text-[11px] text-slate-300">{user.role} · {user.depot}</div>
+        </div>
+        <button type="button" className="rounded-md p-1.5 hover:bg-white/10" aria-label="Sign out" onClick={onSignOut}><LogOut size={16} /></button>
+      </div>
+    </div>
+  )
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname()
+  const router = useRouter()
+  const { user, ready, logout } = useAuth()
   const { status, rulesVersion } = useStore()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const isPublic = PUBLIC.includes(path)
+
+  useEffect(() => {
+    if (!ready) return
+    if (!user && !isPublic) router.replace("/login")
+    if (user && isPublic) router.replace("/")
+  }, [ready, user, isPublic, router])
+
+  if (isPublic) return <>{children}</>
+  if (!ready || !user) return <div className="grid min-h-screen place-items-center"><div role="status" aria-label="Loading workspace" className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
+
+  const signOut = () => {
+    setMobileOpen(false)
+    logout()
+    router.replace("/login")
+  }
 
   return (
     <div className="routewise-shell">
@@ -80,6 +117,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div><strong>{formatPlanDate(PLAN_DATE)}</strong><small>Sample plan · Rules {rulesVersion}</small></div>
           {status !== "None" && <Tag tone={status === "Draft" ? "amber" : "green"}>{status}</Tag>}
         </div>
+        <SessionControls user={user} onSignOut={signOut} />
       </aside>
       <header className="routewise-mobile">
         <Brand />
@@ -89,6 +127,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <SheetTitle className="sr-only">RouteWyse navigation</SheetTitle>
             <Brand />
             <Navigation path={path} onNavigate={() => setMobileOpen(false)} />
+            <SessionControls user={user} onSignOut={signOut} />
           </SheetContent>
         </Sheet>
       </header>

@@ -48,7 +48,7 @@ export default function Deliveries() {
         <CardContent>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <Input className="w-64" aria-label="Search deliveries" placeholder="Search delivery, customer, city…" value={q} onChange={(e) => setQ(e.target.value)} />
-            <Select value={sp} onValueChange={(v) => setSp(v ?? "all")}>
+            <Select items={{ all: "All shipping points", ...Object.fromEntries(SHIPPING_POINTS.map((s) => [s.id, `${s.id} · ${s.name}`])) }} value={sp} onValueChange={(v) => setSp(v ?? "all")}>
               <SelectTrigger className="w-40"><SelectValue placeholder="Shipping point" /></SelectTrigger>
               <SelectContent><SelectItem value="all">All shipping points</SelectItem>{SHIPPING_POINTS.map((s) => <SelectItem key={s.id} value={s.id}>{s.id} · {s.name}</SelectItem>)}</SelectContent>
             </Select>

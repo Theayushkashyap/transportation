@@ -3,6 +3,10 @@
   background: radial-gradient(ellipse at 93% 0%, #e7f0e5 0, transparent 30rem), var(--background);
 }
 
+.dark .routewise-shell {
+  background: radial-gradient(ellipse at 93% 0%, #1a302b 0, transparent 30rem), var(--background);
+}
+
 .routewise-main {
   width: 100%;
   min-width: 0;
@@ -148,6 +152,10 @@
 
   .routewise-sidebar-footer {
     margin-top: auto;
+  }
+
+  .routewise-sidebar-footer + div {
+    margin-top: -.85rem;
   }
 }
 
