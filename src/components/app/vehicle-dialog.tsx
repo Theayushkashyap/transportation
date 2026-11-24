@@ -30,16 +30,16 @@ export function VehicleDialog({ vehicle, onClose }: { vehicle: Vehicle | null; o
   const tone = v?.status === "Available" ? "green" : v?.status === "Assigned" ? "amber" : "red"
   return (
     <Dialog open={!!v} onOpenChange={(o) => !o && close()}>
-      <DialogContent className="!block !max-w-none !gap-0 !bg-background !p-0" style={{ width: "min(1440px, calc(100vw - 32px))", maxHeight: "94dvh", minWidth: 0, overflowX: "hidden", overflowY: "auto", display: "block", backgroundColor: "var(--background)" }} overlayClassName="bg-black/35 supports-backdrop-filter:backdrop-blur-none">
+      <DialogContent className="!block !max-w-none !gap-0 !bg-background !p-0" style={{ width: "min(1440px, calc(100vw - 32px))", maxHeight: "calc(100dvh - 32px)", top: "16px", left: "50%", translate: "-50% 0", minWidth: 0, overflowX: "hidden", overflowY: "auto", display: "block", backgroundColor: "var(--background)" }} overlayClassName="bg-black/35 supports-backdrop-filter:backdrop-blur-none">
         {v && t && (
           <>
             <header className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b bg-card px-5 py-4 pr-14">
               <div><div className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Vehicle workspace</div><DialogTitle className="text-2xl font-semibold">{v.reg}</DialogTitle><DialogDescription className="mt-1">{VEHICLE_PHOTO[v.type].model} · {v.type} · {v.id}</DialogDescription></div>
-              <div className="flex gap-2"><Tag tone={v.ownership === "Company" ? "blue" : "amber"}>{v.ownership}</Tag><Tag tone={tone}>{v.status}</Tag></div>
+              <div className="flex flex-wrap gap-2"><Tag tone="gray">Prototype data</Tag><Tag tone={v.ownership === "Company" ? "blue" : "amber"}>{v.ownership}</Tag><Tag tone={tone}>{v.status}</Tag></div>
             </header>
             <div className="grid w-full min-w-0 gap-4 bg-muted/30 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)_minmax(0,1fr)]">
               <div className="min-w-0 space-y-3">
-                <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">Current assignment</div><div className="mt-2 text-lg font-semibold">{trip?.id ?? "Unallocated"}</div><div className="mt-2 text-xs text-muted-foreground">{trip ? `${Math.round(trip.distanceKm)} km · ${trip.stops.length} stops` : "No assigned trip"}</div><div className="mt-4 border-t pt-3 text-sm"><div className="text-xs text-muted-foreground">Depot</div>{sp?.name ?? v.location}<div className="mt-2 text-xs text-muted-foreground">Ready from {fmtHour(v.availableFromH)}</div></div></div>
+                <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">Current plan assignment</div><div className="mt-2 text-lg font-semibold">{trip?.id ?? "Unallocated"}</div><div className="mt-2 text-xs text-muted-foreground">{trip ? `${Math.round(trip.distanceKm)} km · ${trip.stops.length} stops` : "No feasible allocation in this plan"}</div><div className="mt-4 border-t pt-3 text-sm"><div className="text-xs text-muted-foreground">Depot</div>{sp?.name ?? v.location}<div className="mt-2 text-xs text-muted-foreground">Ready from {fmtHour(v.availableFromH)}</div></div></div>
                 <Spec l="Planned departure" v={trip ? fmtHour(trip.startH) : "—"} />
                 <Spec l="Final planned stop" v={routeCustomers[routeCustomers.length - 1]?.city ?? "—"} />
               </div>
@@ -55,7 +55,7 @@ export function VehicleDialog({ vehicle, onClose }: { vehicle: Vehicle | null; o
               <div className="flex w-full min-w-0 max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-2" style={{ width: "100%", minWidth: 0, maxWidth: "100%", overflowX: "auto" }}>
                 {vehicles.map(x => (
                   <button key={x.id} type="button" aria-pressed={x.id === v.id} onClick={() => setSelection({ origin: vehicle!.id, id: x.id })} className={`flex w-52 shrink-0 items-center gap-2 rounded-xl border p-2 text-left transition-colors ${x.id === v.id ? "border-primary bg-card ring-1 ring-primary/30" : "bg-card/60 hover:bg-card"}`}>
-                    <div className="min-w-0 flex-1"><div className="truncate font-semibold text-xs">{x.reg}</div><div className="mt-1 text-[11px] text-muted-foreground">{x.type} · {x.status}</div></div>
+                    <div className="min-w-0 flex-1"><div className="truncate font-semibold text-xs">{x.reg}</div><div className="mt-1 text-[11px] text-muted-foreground">{x.type} · {plan?.trips.some(t => t.vehicleId === x.id) ? "Planned" : x.status}</div></div>
                     <div className="relative h-12 w-20 shrink-0"><Image src={VEHICLE_PHOTO[x.type].src} alt="" fill sizes="80px" className="rounded object-contain" /></div>
                   </button>
                 ))}
@@ -64,7 +64,7 @@ export function VehicleDialog({ vehicle, onClose }: { vehicle: Vehicle | null; o
             <div className="grid w-full min-w-0 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
               <section className="min-w-0 overflow-hidden rounded-xl border bg-card">
                 <div className="p-4"><h3 className="font-semibold">Planned route</h3><p className="mt-1 text-xs text-muted-foreground">{trip ? `${trip.stops.length} stops · ${Math.round(trip.distanceKm)} km estimated` : "No trip allocated"}</p></div>
-                {trip ? <DispatchMap key={trip.id} trips={[trip]} customers={routeCustomers} ctx={ctx} state="" /> : <div className="grid min-h-56 place-items-center bg-muted/30 text-xs text-muted-foreground">Route appears after allocation.</div>}
+                {trip ? <DispatchMap key={trip.id} trips={[trip]} customers={routeCustomers} ctx={ctx} state="" /> : <div className="grid min-h-56 place-items-center bg-muted/30 text-xs text-muted-foreground">No route planned for this vehicle. Select an allocated vehicle to view its route.</div>}
               </section>
               <section className="min-w-0 rounded-xl border bg-card p-4">
                 <div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">Assigned deliveries <span className="ml-1 text-xs text-muted-foreground">({stops.length})</span></h3>{trip && <Tag tone="gray">Planned</Tag>}</div>
