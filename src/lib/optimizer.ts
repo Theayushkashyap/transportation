@@ -4,6 +4,7 @@ import {
   DISPATCH_HOUR,
   Delivery,
   distKm,
+  fmtHour,
   PlanParams,
   SHIPPING_POINTS,
   Vehicle,
@@ -148,15 +149,17 @@ export function evaluateTrip(ctx: Ctx, sp: string, stops: Stop[], v: Vehicle, tr
     const leg = distKm(cur, { lat: c.lat!, lng: c.lng! })
     km += leg
     t += leg / SPEED
-    etas.push(t)
     if (c.ownVehicleOnly && v.ownership !== "Company") violations.push(`${c.name} accepts company vehicles only`)
     if (c.allowedTypes && !c.allowedTypes.includes(v.type)) violations.push(`${v.type} not permitted at ${c.name}`)
     if (c.maxLengthFt && type.lengthFt > c.maxLengthFt) violations.push(`${v.type} (${type.lengthFt}ft) exceeds ${c.maxLengthFt}ft limit at ${c.name}`)
     if (!v.permitStates.includes(c.state)) violations.push(`${v.reg} has no permit for ${c.state}`)
     if (ctx.params.enforceAppointments && d.appointment?.status === "Confirmed" && !ctx.exceptions.has(d.id)) {
+      const start = absHour(d.appointment.date, d.appointment.start)
       const end = absHour(d.appointment.date, d.appointment.end)
-      if (t > end) violations.push(`ETA ${hhmm(t)} misses appointment window ending ${d.appointment.end} at ${c.name}`)
+      t = Math.max(t, start)
+      if (t > end) violations.push(`ETA ${fmtHour(t)} misses appointment window ending ${d.appointment.end} at ${c.name}`)
     }
+    etas.push(t)
     t += UNLOAD_HOURS
     cur = { lat: c.lat!, lng: c.lng! }
   }
@@ -186,15 +189,8 @@ export function evaluateTrip(ctx: Ctx, sp: string, stops: Stop[], v: Vehicle, tr
   }
 }
 
-function hhmm(abs: number) {
-  const day = Math.floor(abs / 24)
-  const h = Math.floor(abs - day * 24)
-  const m = Math.round((abs - Math.floor(abs)) * 60) % 60
-  return `${day ? "D+" + day + " " : ""}${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
-}
-
 // ---------- optimizer ----------
-export function runOptimization(ctx: Ctx, label: string, rulesVersion: string): Plan {
+export function runOptimization(ctx: Ctx, label: string, rulesVersion: string, createdAt = new Date()): Plan {
   const { params } = ctx
   const trips: Trip[] = []
   const unplanned: Unplanned[] = []
@@ -229,8 +225,8 @@ export function runOptimization(ctx: Ctx, label: string, rulesVersion: string): 
         .map((v) => evaluateTrip(ctx, sp.id, stops, v))
         .filter((t) => t.violations.length === 0)
 
-    const best = (stops: Stop[]): Trip | null => {
-      const f = feasible(stops)
+    const best = (stops: Stop[], minUtil = 0): Trip | null => {
+      const f = feasible(stops).filter((t) => t.util >= minUtil)
       if (!f.length) return null
       const vOf = (t: Trip) => ctx.vehicles[t.vehicleId]
       const company = f.filter((t) => vOf(t).ownership === "Company")
@@ -332,9 +328,13 @@ export function runOptimization(ctx: Ctx, label: string, rulesVersion: string): 
       })
       if (params.deferUneconomical && !urgent) {
         if (cur.util * 100 < params.minLoadPct) {
-          for (const s of stops)
-            unplanned.push({ stop: s, sp: sp.id, kind: "Uneconomical", reason: `Best-fit load utilisation ${Math.round(cur.util * 100)}% is below the ${params.minLoadPct}% threshold – deferred for consolidation` })
-          continue
+          const fit = best(stops, params.minLoadPct / 100)
+          if (!fit) {
+            for (const s of stops)
+              unplanned.push({ stop: s, sp: sp.id, kind: "Uneconomical", reason: `No feasible vehicle reaches the ${params.minLoadPct}% load threshold – deferred for consolidation` })
+            continue
+          }
+          cur = fit
         }
         if (value < params.minDispatchValue) {
           for (const s of stops)
@@ -366,19 +366,21 @@ export function runOptimization(ctx: Ctx, label: string, rulesVersion: string): 
         }
         const e = evaluateTrip(ctx, sp.id, stops, cv)
         if (e.violations.length) considered.push({ vehicleId: cv.id, label: vehicleLabel(cv), outcome: "rejected", reason: e.violations[0] })
+        else if (params.deferUneconomical && !urgent && e.util * 100 < params.minLoadPct)
+          considered.push({ vehicleId: cv.id, label: vehicleLabel(cv), outcome: "rejected", reason: `Below the ${params.minLoadPct}% load threshold` })
         else
           considered.push({
             vehicleId: cv.id,
             label: vehicleLabel(cv),
             outcome: "feasible",
-            reason: cv.ownership === "Market" && params.preferCompany ? "Feasible, but company fleet preferred" : `Feasible, costs ${Math.round(e.cost - cur.cost) >= 0 ? "₹" + Math.round(e.cost - cur.cost).toLocaleString("en-IN") + " more" : "less but larger/oversized"}`,
+            reason: cv.ownership === "Market" && v.ownership === "Company" && params.preferCompany ? "Feasible, but company fleet preferred" : "Feasible alternative",
             cost: e.cost,
           })
       }
       const rationale = [
         stops.length > 1 ? `${stops.length} stops consolidated – all within ${Math.round(Math.max(...stops.map((s) => distKm(seedLoc, loc(s)))))} km of the farthest drop` : "Single drop – no compatible delivery nearby to consolidate",
         `${v.ownership === "Company" ? "Company" : "Market"} ${v.type} chosen – ${Math.round(cur.util * 100)}% utilised (${(cur.weightKg / 1000).toFixed(1)}T / ${cur.volumeM3.toFixed(1)}m³)`,
-        v.ownership === "Company" ? "Company fleet used before hiring market vehicles" : "No suitable company vehicle was free for this load/route – market hire required",
+        v.ownership === "Company" ? "Assigned to the company fleet" : "Assigned to a market vehicle that satisfies the active rules",
         `All hard constraints passed (capacity, permits, customer restrictions, appointments)`,
       ]
       if (stops.some((s) => s.part)) rationale.push("Contains a partial quantity of a split delivery")
@@ -396,9 +398,9 @@ export function runOptimization(ctx: Ctx, label: string, rulesVersion: string): 
   )
 
   return {
-    id: `RUN-${Date.now().toString(36).toUpperCase()}`,
+    id: `RUN-${createdAt.getTime().toString(36).toUpperCase()}`,
     label,
-    createdAt: new Date().toISOString(),
+    createdAt: createdAt.toISOString(),
     params,
     rulesVersion,
     trips,
@@ -428,6 +430,7 @@ export function planKpis(plan: Plan, ctx: Ctx): PlanKpis {
   const weightKg = trips.reduce((a, t) => a + t.weightKg, 0)
   const cost = trips.reduce((a, t) => a + t.cost, 0)
   const company = trips.filter((t) => ctx.vehicles[t.vehicleId].ownership === "Company").length
+  const unfinished = new Set(plan.unplanned.map((u) => u.stop.deliveryId))
   return {
     trips: trips.length,
     companyTrips: company,
@@ -439,7 +442,7 @@ export function planKpis(plan: Plan, ctx: Ctx): PlanKpis {
     km: trips.reduce((a, t) => a + t.distanceKm + t.returnKm * (ctx.vehicles[t.vehicleId].ownership === "Company" ? 1 : 0), 0),
     unplannedLoads: plan.unplanned.length,
     unplannedKg: plan.unplanned.reduce((a, u) => a + u.stop.weightKg, 0),
-    plannedDeliveries: new Set(trips.flatMap((t) => t.stops.map((s) => s.deliveryId))).size,
+    plannedDeliveries: new Set(trips.flatMap((t) => t.stops.map((s) => s.deliveryId)).filter((id) => !unfinished.has(id))).size,
     violations: trips.reduce((a, t) => a + t.violations.length, 0),
   }
 }

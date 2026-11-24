@@ -15,16 +15,16 @@ export default function Execution() {
   if (!plan || status !== "Published")
     return (
       <>
-        <PageHeader title="Execution tracking" desc="Read-only view of trip status from the existing GPS provider and POD application once a plan is published." reqs="Consumption of vehicle tracking and POD status through existing integrations" />
+        <PageHeader photo="execution" title="Execution demo" desc="Preview example GPS and proof-of-delivery statuses for the demo trips." />
         <Card><CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-          <p className="max-w-md text-sm text-muted-foreground">Tracking starts after a plan is published. This module does not own GPS or POD – it only consumes their status.</p>
-          <Button variant="outline" render={<Link href="/planning" />}>Go to planning workbench</Button>
+          <p className="max-w-md text-sm text-muted-foreground">Simulate publishing in the planning workbench to see example trip statuses.</p>
+          <Button variant="outline" nativeButton={false} render={<Link href="/planning" />}>Go to planning workbench</Button>
         </CardContent></Card>
       </>
     )
   return (
     <>
-      <PageHeader title="Execution tracking" desc="Simulated GPS / POD feed for the published plan." reqs="Consumption of vehicle tracking and POD status through existing integrations" />
+      <PageHeader photo="execution" title="Execution demo" desc="Example GPS and proof-of-delivery statuses for the demo trips." />
       <Card><CardContent>
         <Table>
           <TableHeader><TableRow><TableHead>Trip</TableHead><TableHead>Vehicle</TableHead><TableHead>Route</TableHead><TableHead>GPS status</TableHead><TableHead>Next ETA</TableHead><TableHead>POD</TableHead></TableRow></TableHeader>

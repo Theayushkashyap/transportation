@@ -136,6 +136,11 @@ export function absHour(date: string, hhmm: string) {
   return days * 24 + h + m / 60
 }
 
+export function formatPlanDate(date: string) {
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
+    .format(new Date(date))
+}
+
 export function fmtHour(abs: number) {
   const day = Math.floor(abs / 24)
   const h = Math.floor(abs - day * 24)
@@ -238,7 +243,7 @@ function buildDeliveries(): Delivery[] {
       const r = rng()
       const priority: Priority = r < 0.12 ? "High" : r < 0.82 ? "Normal" : "Low"
       const nItems = 2 + Math.floor(rng() * 2)
-      const items: DeliveryItem[] = Array.from({ length: nItems }, (_, i) => {
+      const items: DeliveryItem[] = Array.from({ length: nItems }, () => {
         const m = MATERIALS[Math.floor(rng() * MATERIALS.length)]
         const w = Math.round(weightKg / nItems)
         return { material: m[0], description: m[1], qty: Math.max(10, Math.round(w / 12)), uom: m[2], weightKg: w }
@@ -402,13 +407,6 @@ export const DEFAULT_PARAMS: PlanParams = {
 
 export interface AuditEntry {
   at: string
-  user: string
   action: string
   detail: string
 }
-
-export const SEED_AUDIT: AuditEntry[] = [
-  { at: "19 Nov 13:42", user: "Anita R. (Planner)", action: "Vehicle availability imported", detail: "26 vehicles from Fleet system + Transporter API" },
-  { at: "19 Nov 17:05", user: "System", action: "SAP delivery sync", detail: "Imported released deliveries · duplicates prevented" },
-  { at: "19 Nov 17:12", user: "Business Admin", action: "Rule changed", detail: "Minimum load threshold 45% → 50% (config v14 → v15)" },
-]

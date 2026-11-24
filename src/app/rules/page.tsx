@@ -25,7 +25,7 @@ export default function Rules() {
   const restricted = customers.filter((c) => c.ownVehicleOnly || c.allowedTypes || c.maxLengthFt || c.requiresAppointment || c.lat == null)
   return (
     <>
-      <PageHeader title="Rules & parameters" desc="Business-owned configuration. Every change creates a new versioned config that plans reference for reproducibility." reqs="Business rule configuration & audit logging · INT-04 customer restrictions" actions={<Tag tone="blue">Config {rulesVersion}</Tag>} />
+      <PageHeader photo="rules" title="Rules & parameters" desc="Edit the prototype’s planning defaults for this session. Saving assigns the defaults a new version number." actions={<Tag tone="blue">Config {rulesVersion}</Tag>} />
       <Tabs defaultValue="params">
         <TabsList><TabsTrigger value="params">Planning parameters</TabsTrigger><TabsTrigger value="customers">Customer restrictions</TabsTrigger><TabsTrigger value="costs">Vehicle & cost profiles</TabsTrigger></TabsList>
         <TabsContent value="params" className="pt-3">
@@ -38,11 +38,11 @@ export default function Rules() {
             </CardContent></Card>
         </TabsContent>
         <TabsContent value="customers" className="pt-3"><Card><CardContent>
-          <Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Category</TableHead><TableHead>Restriction</TableHead><TableHead>Source of authority</TableHead></TableRow></TableHeader>
+          <Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Category</TableHead><TableHead>Restriction</TableHead><TableHead>Sample data source</TableHead></TableRow></TableHeader>
             <TableBody>{restricted.map((c) => (
               <TableRow key={c.id}><TableCell className="text-sm">{c.name}<div className="text-xs text-muted-foreground">{c.city}, {c.state}</div></TableCell><TableCell className="text-xs">{c.category}</TableCell>
                 <TableCell className="space-x-1 text-xs">{c.requiresAppointment && <Tag tone="blue">Appointment required</Tag>}{c.ownVehicleOnly && <Tag tone="amber">Company vehicles only</Tag>}{c.maxLengthFt && <Tag tone="amber">Max {c.maxLengthFt}ft</Tag>}{c.allowedTypes && <Tag tone="amber">{c.allowedTypes.length} types allowed</Tag>}{c.lat == null && <Tag tone="red">Coordinates missing</Tag>}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{c.lat == null ? "SAP (data quality)" : "Supplementary config layer (TBC)"}</TableCell></TableRow>))}</TableBody></Table>
+                <TableCell className="text-xs text-muted-foreground">{c.lat == null ? "Sample customer master" : "Sample customer rules"}</TableCell></TableRow>))}</TableBody></Table>
         </CardContent></Card></TabsContent>
         <TabsContent value="costs" className="pt-3"><Card><CardContent>
           <Table><TableHeader><TableRow><TableHead>Vehicle type</TableHead><TableHead className="text-right">Rated</TableHead><TableHead className="text-right">Usable</TableHead><TableHead className="text-right">Volume</TableHead><TableHead className="text-right">Market ₹/km (min)</TableHead><TableHead className="text-right">Company ₹/km + fixed</TableHead></TableRow></TableHeader>

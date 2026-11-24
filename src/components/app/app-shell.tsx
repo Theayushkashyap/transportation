@@ -1,92 +1,138 @@
 "use client"
 
+import { useEffect, useState } from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { useEffect } from "react"
-import { Activity, FileCheck2, GitCompare, LayoutDashboard, LogOut, Plug, Route, Settings2, Truck, Package, Radar } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { useStore } from "@/lib/store"
-import { useAuth } from "@/lib/auth"
+import { CalendarDays, ClipboardList, FileCheck2, GitCompare, Home, LogOut, Menu, Package, Radar, Route, SlidersHorizontal, Truck } from "lucide-react"
 import { ThemeToggle } from "@/components/app/theme-toggle"
-import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import { Tag } from "@/components/app/bits"
+import { useAuth, type User } from "@/lib/auth"
+import { PLAN_DATE, formatPlanDate } from "@/lib/data"
+import { useStore } from "@/lib/store"
+import { cn } from "@/lib/utils"
 
 const NAV = [
-  { group: "Plan", items: [
-    { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { group: "Operations", items: [
+    { href: "/", label: "Overview", icon: Home },
+    { href: "/planning", label: "Dispatch planning", icon: Route },
     { href: "/deliveries", label: "Deliveries", icon: Package },
-    { href: "/vehicles", label: "Vehicles", icon: Truck },
-    { href: "/planning", label: "Planning workbench", icon: Route },
-    { href: "/scenarios", label: "Scenarios", icon: GitCompare },
+    { href: "/vehicles", label: "Fleet & vehicles", icon: Truck },
+    { href: "/execution", label: "Execution demo", icon: Radar },
   ] },
-  { group: "Execute", items: [{ href: "/execution", label: "Execution tracking", icon: Radar }] },
-  { group: "Govern", items: [
-    { href: "/rules", label: "Rules & parameters", icon: Settings2 },
-    { href: "/integrations", label: "Integrations & audit", icon: Plug },
+  { group: "Planning tools", items: [
+    { href: "/scenarios", label: "Scenarios", icon: GitCompare },
+    { href: "/rules", label: "Business rules", icon: SlidersHorizontal },
+    { href: "/integrations", label: "Session activity", icon: FileCheck2 },
+    { href: "/scope", label: "Prototype coverage", icon: ClipboardList },
   ] },
 ]
 
-const statusTone: Record<string, string> = {
-  None: "bg-muted text-muted-foreground",
-  Draft: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  "Pending approval": "bg-blue-500/15 text-blue-700 dark:text-blue-400",
-  Approved: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-  Published: "bg-emerald-600 text-white",
+function Brand() {
+  return (
+    <Link href="/" className="routewise-brand" aria-label="RouteWyse home">
+      <Image src="/routewys-logo.webp" alt="" width={640} height={163} unoptimized />
+    </Link>
+  )
+}
+
+function Navigation({ path, onNavigate }: { path: string; onNavigate?: () => void }) {
+  return (
+    <nav aria-label="Main navigation" className="routewise-nav">
+      {NAV.map(({ group, items }) => (
+        <div key={group} className="routewise-nav-group">
+          <p>{group}</p>
+          {items.map(({ href, label, icon: Icon }) => {
+            const active = path === href
+            return (
+              <Link key={href} href={href} aria-current={active ? "page" : undefined} className={cn("routewise-nav-link", active && "is-current")} onClick={onNavigate}>
+                <Icon aria-hidden="true" size={18} />
+                {label}
+              </Link>
+            )
+          })}
+        </div>
+      ))}
+    </nav>
+  )
 }
 
 const PUBLIC = ["/login", "/signup"]
+
+function SessionControls({ user, onSignOut }: { user: User; onSignOut: () => void }) {
+  return (
+    <div className="relative space-y-2 rounded-lg border border-white/15 bg-[#142f39] p-2.5">
+      <ThemeToggle className="bg-card" />
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-medium">{user.name}</div>
+          <div className="truncate text-[11px] text-slate-300">{user.role} · {user.depot}</div>
+        </div>
+        <button type="button" className="rounded-md p-1.5 hover:bg-white/10" aria-label="Sign out" onClick={onSignOut}><LogOut size={16} /></button>
+      </div>
+    </div>
+  )
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname()
   const router = useRouter()
   const { user, ready, logout } = useAuth()
-  const { status, rulesVersion, lastSync } = useStore()
+  const { status, rulesVersion } = useStore()
+  const [mobileOpen, setMobileOpen] = useState(false)
   const isPublic = PUBLIC.includes(path)
+
   useEffect(() => {
     if (!ready) return
     if (!user && !isPublic) router.replace("/login")
     if (user && isPublic) router.replace("/")
   }, [ready, user, isPublic, router])
+
   if (isPublic) return <>{children}</>
-  if (!ready || !user) return <div className="grid min-h-screen place-items-center"><div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
+  if (!ready || !user) return <div className="grid min-h-screen place-items-center"><div role="status" aria-label="Loading workspace" className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
+
+  const signOut = () => {
+    setMobileOpen(false)
+    logout()
+    router.replace("/login")
+  }
+
   return (
-    <div className="flex min-h-screen">
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r bg-sidebar p-3 md:flex">
-        <div className="flex items-center gap-2 px-2 py-3">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Route className="size-4" /></div>
-          <div>
-            <div className="text-sm font-semibold leading-none">RouteWise</div>
-            <div className="mt-1 text-[11px] text-muted-foreground">Transport planning · prototype</div>
-          </div>
+    <div className="routewise-shell">
+      <svg className="absolute size-0" aria-hidden="true">
+        <defs>
+          <filter id="routewys-dark-logo" colorInterpolationFilters="sRGB">
+            <feColorMatrix type="matrix" values="1 0 1.45 0 0  0 1 1.42 0 0  0 0 2.18 0 0  0 0 0 1 0" />
+          </filter>
+        </defs>
+      </svg>
+      <a className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-card focus:p-3" href="#main-content">Skip to content</a>
+      <aside className="routewise-sidebar">
+        <Brand />
+        <Navigation path={path} />
+        <div className="routewise-sidebar-footer">
+          <CalendarDays aria-hidden="true" size={18} />
+          <div><strong>{formatPlanDate(PLAN_DATE)}</strong><small>Sample plan · Rules {rulesVersion}</small></div>
+          {status !== "None" && <Tag tone={status === "Draft" ? "amber" : "green"}>{status}</Tag>}
         </div>
-        <nav className="mt-3 flex-1 space-y-4 overflow-y-auto">
-          {NAV.map((g) => (
-            <div key={g.group}>
-              <div className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{g.group}</div>
-              {g.items.map((i) => {
-                const active = i.href === "/" ? path === "/" : path.startsWith(i.href)
-                return (
-                  <Link key={i.href} href={i.href} className={cn("flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors", active ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground")}>
-                    <i.icon className="size-4" />{i.label}
-                  </Link>
-                )
-              })}
-            </div>
-          ))}
-        </nav>
-        <div className="rounded-lg border bg-background p-3 text-xs">
-          <div className="flex items-center justify-between"><span className="text-muted-foreground">Plan for 20 Nov</span><Badge className={cn("border-0", statusTone[status])}>{status}</Badge></div>
-          <div className="mt-2 flex items-center gap-1.5 text-muted-foreground"><Activity className="size-3" />SAP sync {lastSync}</div>
-          <div className="mt-1 flex items-center gap-1.5 text-muted-foreground"><FileCheck2 className="size-3" />Rules {rulesVersion}</div>
-        </div>
-        <ThemeToggle className="mt-2" />
-        <div className="mt-2 flex items-center gap-2 rounded-lg border bg-background p-2">
-          <div className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{user.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}</div>
-          <div className="min-w-0 flex-1"><div className="truncate text-xs font-medium">{user.name}</div><div className="truncate text-[11px] text-muted-foreground">{user.role} · {user.depot}</div></div>
-          <button onClick={() => { logout(); router.replace("/login") }} aria-label="Sign out" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><LogOut className="size-4" /></button>
-        </div>
+        <SessionControls user={user} onSignOut={signOut} />
       </aside>
-      <main className="min-w-0 flex-1">
-        <div className="mx-auto max-w-[1400px] p-4 md:p-8">{children}</div>
+      <header className="routewise-mobile">
+        <Brand />
+        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+          <SheetTrigger render={<Button size="icon" variant="outline" aria-label="Open navigation" />}><Menu aria-hidden="true" /></SheetTrigger>
+          <SheetContent side="left" className="routewise-drawer">
+            <SheetTitle className="sr-only">RouteWyse navigation</SheetTitle>
+            <Brand />
+            <Navigation path={path} onNavigate={() => setMobileOpen(false)} />
+            <SessionControls user={user} onSignOut={signOut} />
+          </SheetContent>
+        </Sheet>
+      </header>
+      <main id="main-content" className="routewise-main" tabIndex={-1}>
+        {children}
       </main>
     </div>
   )

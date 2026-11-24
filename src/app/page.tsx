@@ -1,135 +1,186 @@
 "use client"
 
+import { useMemo, useState } from "react"
 import Link from "next/link"
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { ArrowRight, CheckCircle2, Circle, Play } from "lucide-react"
-import { useStore } from "@/lib/store"
-import { inr, inrK, SHIPPING_POINTS } from "@/lib/data"
-import { validateDelivery } from "@/lib/optimizer"
-import { Kpi, PageHeader, Tag } from "@/components/app/bits"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
+import { ArrowRight, CalendarDays, ChevronDown, CircleAlert, Coins, Gauge, Layers3, Map as MapIcon, MapPin, Package, Play, Truck } from "lucide-react"
+import { DispatchMap } from "@/components/app/dispatch-map"
 import { LiveTracking } from "@/components/app/live-tracking"
+import { PageHeader, Tag, UtilBar } from "@/components/app/bits"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { formatPlanDate, inr, PLAN_DATE, type Category } from "@/lib/data"
+import { planKpis, runOptimization, validateDelivery } from "@/lib/optimizer"
+import { useStore } from "@/lib/store"
+
+const CATEGORIES: { name: Category; color: string }[] = [
+  { name: "Regular", color: "#087b5e" },
+  { name: "Modern Trade", color: "#86c9a4" },
+  { name: "Other", color: "#f0c875" },
+]
+
+const tonnes = (kg: number) => (kg / 1000).toLocaleString("en-IN", { maximumFractionDigits: 1 })
 
 export default function Dashboard() {
-  const { plan, kpis, ctx, deliveries, customers, vehicles, status, optimize, params, exceptions, lastSync } = useStore()
-  const vals = deliveries.map((d) => validateDelivery(d, customers.find((c) => c.id === d.customerId)!, params, exceptions))
-  const eligible = vals.filter((v) => v.state === "Eligible").length
-  const blocked = vals.filter((v) => v.state === "Blocked").length
-  const avail = vehicles.filter((v) => v.status === "Available")
-  const fleetUse = plan ? new Set(plan.trips.map((t) => t.vehicleId)) : new Set<string>()
-  const companyAvail = avail.filter((v) => v.ownership === "Company").length
-  const companyUsed = [...fleetUse].filter((id) => ctx.vehicles[id].ownership === "Company").length
-
-  const trips = plan?.trips ?? []
-  const utilData = trips.map((t) => ({ name: t.id.replace("T-", ""), util: Math.round(t.util * 100), own: ctx.vehicles[t.vehicleId].ownership }))
-  const spData = SHIPPING_POINTS.map((sp) => {
-    const ts = trips.filter((t) => t.sp === sp.id)
-    return { name: sp.id, Company: Math.round(ts.filter((t) => ctx.vehicles[t.vehicleId].ownership === "Company").reduce((a, t) => a + t.cost, 0)), Market: Math.round(ts.filter((t) => ctx.vehicles[t.vehicleId].ownership === "Market").reduce((a, t) => a + t.cost, 0)) }
-  })
-  const unplKinds = Object.entries((plan?.unplanned ?? []).reduce<Record<string, number>>((a, u) => ((a[u.kind] = (a[u.kind] ?? 0) + 1), a), {}))
-
-  const steps = [
-    { t: "13:00–14:00", label: "Vehicle availability received", done: true, detail: `${avail.length} vehicles available` },
-    { t: "17:00", label: "Released deliveries synced from SAP", done: true, detail: `${deliveries.length} deliveries · ${blocked} blocked` },
-    { t: "Evening", label: "Optimization run & planner review", done: !!plan, detail: plan ? `${plan.trips.length} trips drafted` : "Not run yet" },
-    { t: "Evening", label: "Supervisor approval", done: status === "Approved" || status === "Published", detail: status },
-    { t: "Night", label: "Plan published to SAP / dispatch", done: status === "Published", detail: status === "Published" ? "Shipments created" : "Pending" },
+  const { plan, ctx, deliveries, customers, vehicles, status, canOptimize, optimize, params, exceptions, rulesVersion } = useStore()
+  const [state, setState] = useState("")
+  const [showTracking, setShowTracking] = useState(false)
+  const preview = useMemo(() => plan ?? runOptimization({ ...ctx, params }, "Preview", rulesVersion, new Date(PLAN_DATE)), [plan, ctx, params, rulesVersion])
+  const stateCustomers = customers.filter((customer) => !state || customer.state === state)
+  const states = Array.from(new Set(customers.map((customer) => customer.state))).sort()
+  const customerIds = new Set(stateCustomers.map((customer) => customer.id))
+  const matching = deliveries.filter((delivery) => customerIds.has(delivery.customerId))
+  const deliveryIds = new Set(matching.map((delivery) => delivery.id))
+  const trips = preview.trips.filter((trip) => trip.stops.some((stop) => deliveryIds.has(stop.deliveryId)))
+  const unplanned = preview.unplanned.filter(({ stop }) => deliveryIds.has(stop.deliveryId))
+  const stops = trips.flatMap((trip) => trip.stops).filter((stop) => deliveryIds.has(stop.deliveryId))
+  const stats = planKpis({ ...preview, trips, unplanned }, ctx)
+  const totalKg = stops.reduce((sum, stop) => sum + stop.weightKg, 0)
+  const available = vehicles.filter((vehicle) => vehicle.status === "Available").length
+  const eligible = matching.filter((delivery) => validateDelivery(delivery, ctx.customers[delivery.customerId], plan?.params ?? params, exceptions).state === "Eligible").length
+  const excluded = preview.excluded.filter(({ deliveryId }) => deliveryIds.has(deliveryId))
+  const exceptionRows = [
+    { label: "Appointment issues", count: unplanned.filter((load) => load.kind === "Appointment").length + excluded.filter((delivery) => delivery.reasons.some((reason) => /appointment/i.test(reason))).length },
+    { label: "Deferred on economics", count: unplanned.filter((load) => load.kind === "Uneconomical").length },
+    { label: "Capacity exceeded", count: unplanned.filter((load) => load.kind === "Capacity").length },
+    { label: "Vehicle unavailable", count: unplanned.filter((load) => load.kind === "No vehicle").length },
+    { label: "Missing coordinates", count: excluded.filter((delivery) => delivery.reasons.includes("Missing delivery coordinates")).length },
+    { label: "Other constraints", count: unplanned.filter((load) => load.kind === "Constraint").length },
+    { label: "SAP status excluded", count: excluded.filter((delivery) => delivery.reasons.some((reason) => reason.startsWith("SAP status:"))).length },
+    { label: "Trip warnings", count: stats.violations },
+  ].filter(({ count }) => count > 0)
+  const cards = [
+    { label: "Outbound deliveries", value: matching.length, detail: `${eligible} eligible for planning`, color: "mint", icon: Package },
+    { label: "Vehicles allocated", value: `${new Set(trips.map((trip) => trip.vehicleId)).size} / ${available}`, detail: "Available across the fleet", color: "blue", icon: Truck },
+    { label: "Avg. load utilization", value: `${Math.round(stats.avgUtil * 100)}%`, detail: "Based on weight or volume", color: "rose", icon: Gauge },
+    { label: "Estimated trip cost", value: inr(stats.cost), detail: state ? "Full cost of matching trips" : `${inr(stats.costPerTon)} per tonne planned`, color: "gold", icon: Coins },
   ]
+  const breakdown = CATEGORIES.map(({ name, color }) => {
+    const kg = stops.reduce((sum, stop) => sum + (ctx.customers[ctx.deliveries[stop.deliveryId].customerId].category === name ? stop.weightKg : 0), 0)
+    return { name, color, kg, percent: totalKg ? kg / totalKg * 100 : 0 }
+  })
+  const [regular, modern, other] = breakdown
+  const chart = totalKg ? `conic-gradient(${regular.color} 0 ${regular.percent}%, ${modern.color} ${regular.percent}% ${regular.percent + modern.percent}%, ${other.color} ${regular.percent + modern.percent}% 100%)` : "var(--muted)"
+  const planLabel = plan ? status : "Preview"
 
   return (
-    <>
+    <div className="operations-dashboard">
       <PageHeader
-        title="Planning dashboard"
-        desc="Daily dispatch plan for 20 Nov 2026 across Karnataka, Tamil Nadu, Andhra Pradesh, Telangana and Maharashtra."
-        reqs="OBJ-01 → OBJ-12 · dashboards & reporting"
+        title="Operations dashboard"
+        desc={plan ? "Review planned routes, fleet utilization, and dispatch exceptions." : "Sample route preview. Run optimization to create an editable draft."}
         actions={<>
-          <Button variant="outline" render={<Link href="/planning" />}>Open workbench <ArrowRight /></Button>
-          <Button onClick={() => optimize()}><Play /> {plan ? "Re-run optimization" : "Run optimization"}</Button>
+          <span className="dashboard-date"><CalendarDays size={16} aria-hidden="true" /> {formatPlanDate(PLAN_DATE)}</span>
+          <label className="dashboard-filter">
+            <MapPin size={16} aria-hidden="true" />
+            <span className="sr-only">Destination state</span>
+            <select value={state} onChange={(event) => setState(event.target.value)}>
+              <option value="">All states ({states.length})</option>
+              {states.map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
+            <ChevronDown size={14} aria-hidden="true" />
+          </label>
+          {canOptimize && <Button onClick={() => optimize()}><Play aria-hidden="true" /> {plan ? "Re-run plan" : "Run optimization"}</Button>}
         </>}
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-6">
-        <Kpi label="Released deliveries" value={deliveries.length} sub={`${eligible} eligible · ${blocked} blocked`} />
-        <Kpi label="Vehicles available" value={avail.length} sub={`${companyAvail} company · ${avail.length - companyAvail} market`} />
-        <Kpi label="Fleet utilisation" value={plan ? `${companyUsed}/${companyAvail}` : "–"} sub="Company vehicles used" tone={plan && companyUsed / companyAvail > 0.8 ? "good" : undefined} />
-        <Kpi label="Avg load utilisation" value={kpis ? `${Math.round(kpis.avgUtil * 100)}%` : "–"} sub="Weight / volume, whichever binds" tone={kpis && kpis.avgUtil >= 0.75 ? "good" : "warn"} />
-        <Kpi label="Planned cost" value={kpis ? inrK(kpis.cost) : "–"} sub={kpis ? `${inr(kpis.costPerTon)} per tonne` : undefined} />
-        <Kpi label="Market hires" value={kpis ? kpis.marketTrips : "–"} sub={kpis ? `${kpis.unplannedLoads} loads unplanned` : undefined} tone={kpis && kpis.marketTrips > 6 ? "warn" : undefined} />
-      </div>
+      <section className="dashboard-kpis" aria-label="Planning metrics">
+        {cards.map(({ label, value, detail, color, icon: Icon }) => (
+          <article key={label} className={`dashboard-kpi dashboard-kpi--${color}`}>
+            <span className="dashboard-kpi-icon"><Icon size={23} aria-hidden="true" /></span>
+            <div><h2>{label}</h2><strong>{value}</strong><p>{detail}</p></div>
+          </article>
+        ))}
+      </section>
 
-      <LiveTracking />
+      <div className="dashboard-panels">
+        <Card className="dashboard-panel dashboard-map-card">
+          <div className="dashboard-panel-heading">
+            <h2><MapIcon aria-hidden="true" /> Route network</h2>
+            <Tag tone={plan ? "green" : "gray"}>{planLabel}</Tag>
+          </div>
+          <div className="dashboard-map-body">
+            <DispatchMap trips={trips} customers={stateCustomers} ctx={ctx} state={state} />
+            <div className="map-summary">
+              <h3>Dispatch summary</h3>
+              <dl>
+                <div><dt><i className="map-company" /> Company trips</dt><dd>{stats.companyTrips}</dd></div>
+                <div><dt><i className="map-market" /> Market trips</dt><dd>{stats.marketTrips}</dd></div>
+              </dl>
+              <dl>
+                <div><dt>Total trips</dt><dd>{stats.trips}</dd></div>
+                <div><dt>Planned load</dt><dd>{tonnes(totalKg)} t</dd></div>
+                <div><dt>Trip distance</dt><dd>{Math.round(stats.km).toLocaleString("en-IN")} km</dd></div>
+              </dl>
+            </div>
+          </div>
+          <p className="dashboard-map-note">India boundaries from <a href="https://bharatlas.com/view/lgd_states">LGD via bharatlas</a> · Road data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> · <a href="https://www.openstreetmap.org/fixthemap">Fix the map</a></p>
+        </Card>
 
-      {!plan ? (
-        <Card className="mt-6"><CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-          <div className="text-lg font-medium">No plan generated yet</div>
-          <p className="max-w-md text-sm text-muted-foreground">Vehicle availability and SAP deliveries are loaded. Run the optimizer to see utilisation, cost and unplanned-load analytics.</p>
-          <Button onClick={() => optimize()}><Play /> Run optimization</Button>
-        </CardContent></Card>
-      ) : (
-        <div className="mt-6 grid gap-4 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
-            <CardHeader><CardTitle>Load utilisation by trip</CardTitle><CardDescription>Green ≥ 80%, amber 60–79%, red below 60%. Lighter bars = market vehicles.</CardDescription></CardHeader>
-            <CardContent className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={utilData} margin={{ left: -20 }}>
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" opacity={0.4} />
-                  <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-60} textAnchor="end" height={60} />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
-                  <Tooltip formatter={(v) => `${v}%`} />
-                  <Bar dataKey="util" radius={[3, 3, 0, 0]}>
-                    {utilData.map((d, i) => <Cell key={i} fill={d.util >= 80 ? "#10b981" : d.util >= 60 ? "#f59e0b" : "#ef4444"} fillOpacity={d.own === "Market" ? 0.55 : 1} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>Daily planning cycle</CardTitle><CardDescription>Last SAP sync {lastSync}</CardDescription></CardHeader>
-            <CardContent className="space-y-3">
-              {steps.map((s) => (
-                <div key={s.label} className="flex gap-2.5">
-                  {s.done ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" /> : <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
-                  <div className="min-w-0"><div className="text-sm leading-tight">{s.label}</div><div className="text-xs text-muted-foreground">{s.t} · {s.detail}</div></div>
-                </div>
+        <Card className="dashboard-panel">
+          <div className="dashboard-panel-heading">
+            <h2><CircleAlert className="dashboard-exception-icon" aria-hidden="true" /> Dispatch exceptions</h2>
+            <Link className="dashboard-panel-link" href={plan ? "/planning" : "/deliveries"}>{plan ? "Review plan" : "Deliveries"} <ArrowRight aria-hidden="true" size={15} /></Link>
+          </div>
+          <CardContent className="dashboard-exceptions">
+            {exceptionRows.length ? (
+              <ul>
+                {exceptionRows.map(({ label, count }) => (
+                  <li key={label}><span>{label}</span><Tag tone="red">{count}</Tag></li>
+                ))}
+              </ul>
+            ) : <p className="text-sm text-muted-foreground">No exceptions in this view.</p>}
+          </CardContent>
+        </Card>
+
+        <Card className="dashboard-panel">
+          <div className="dashboard-panel-heading">
+            <h2><Truck aria-hidden="true" /> Dispatch plan <span>{trips.length} trips</span></h2>
+            <Link className="dashboard-panel-link" href="/planning">{plan ? "All trips" : "Open workbench"} <ArrowRight aria-hidden="true" size={15} /></Link>
+          </div>
+          <CardContent>
+            {trips.length ? (
+              <Table className="dashboard-dispatch-table">
+                <TableHeader>
+                  <TableRow><TableHead>Trip</TableHead><TableHead>Vehicle</TableHead><TableHead>Route</TableHead><TableHead>Load</TableHead><TableHead>Utilization</TableHead></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {trips.slice(0, 3).map((trip) => {
+                    const vehicle = ctx.vehicles[trip.vehicleId]
+                    const route = trip.stops.map((stop) => ctx.customers[ctx.deliveries[stop.deliveryId].customerId].city).join(" → ")
+                    return (
+                      <TableRow key={trip.id}>
+                        <TableCell className="font-mono text-xs">{trip.id}</TableCell>
+                        <TableCell><span className="text-xs font-medium">{vehicle.reg}</span><span className="block text-xs text-muted-foreground">{vehicle.ownership}</span></TableCell>
+                        <TableCell className="max-w-52 whitespace-normal text-xs">{route}</TableCell>
+                        <TableCell className="text-xs tabular-nums">{tonnes(trip.weightKg)} t</TableCell>
+                        <TableCell><UtilBar value={trip.util} /></TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            ) : <p className="py-4 text-sm text-muted-foreground">No planned trips for this destination.</p>}
+          </CardContent>
+        </Card>
+
+        <Card className="dashboard-panel">
+          <div className="dashboard-panel-heading"><h2><Layers3 aria-hidden="true" /> Load by customer type</h2></div>
+          <CardContent className="dashboard-load">
+            <div className="dashboard-donut" style={{ background: chart }} aria-hidden="true">
+              <div><strong>{tonnes(totalKg)} t</strong><small>Planned load</small></div>
+            </div>
+            <ul aria-label={`${tonnes(totalKg)} tonnes of planned load by customer type`}>
+              {breakdown.map(({ name, color, kg, percent }) => (
+                <li key={name}><i style={{ backgroundColor: color }} /><span>{name}</span><strong>{tonnes(kg)} t</strong> <small>{Math.round(percent)}%</small></li>
               ))}
-            </CardContent>
-          </Card>
-          <Card className="lg:col-span-2">
-            <CardHeader><CardTitle>Cost by shipping point</CardTitle><CardDescription>Company fleet vs market-hire spend</CardDescription></CardHeader>
-            <CardContent className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={spData} margin={{ left: 0 }}>
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" opacity={0.4} />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${v / 1000}k`} />
-                  <Tooltip formatter={(v) => inr(Number(v))} />
-                  <Bar dataKey="Company" stackId="a" fill="#3b82f6" />
-                  <Bar dataKey="Market" stackId="a" fill="#f97316" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>Why loads are unplanned</CardTitle><CardDescription>{plan.unplanned.length} loads · {Math.round((kpis?.unplannedKg ?? 0) / 100) / 10}T</CardDescription></CardHeader>
-            <CardContent className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={unplKinds.map(([name, value]) => ({ name, value }))} dataKey="value" nameKey="name" innerRadius={40} outerRadius={70} paddingAngle={2}>
-                    {unplKinds.map((_, i) => <Cell key={i} fill={["#ef4444", "#f59e0b", "#8b5cf6", "#06b6d4", "#64748b"][i % 5]} />)}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="-mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs">
-                {unplKinds.map(([k, v], i) => <span key={k} className="flex items-center gap-1"><span className={cn("size-2 rounded-full")} style={{ background: ["#ef4444", "#f59e0b", "#8b5cf6", "#06b6d4", "#64748b"][i % 5] }} />{k} {v}</span>)}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-      {plan && <p className="mt-4 text-xs text-muted-foreground">Plan <Tag>{plan.id}</Tag> · rules {plan.rulesVersion} · input snapshot of {plan.snapshot.deliveries} deliveries / {plan.snapshot.vehicles} vehicles retained for reproducibility.</p>}
-    </>
+            </ul>
+          </CardContent>
+        </Card>
+      </div>
+      <details className="mt-4 rounded-xl border bg-card p-4" onToggle={(event) => setShowTracking(event.currentTarget.open)}>
+        <summary className="cursor-pointer text-sm font-semibold">Detailed fleet tracking</summary>
+        {showTracking && <LiveTracking />}
+      </details>
+    </div>
   )
 }

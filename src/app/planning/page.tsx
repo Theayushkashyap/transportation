@@ -10,7 +10,6 @@ import { Kpi, PageHeader, Tag, UtilBar } from "@/components/app/bits"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -22,29 +21,32 @@ export default function Planning() {
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [edit, setEdit] = useState<{ stop: Stop; from: string } | null>(null)
   const [vehOpen, setVehOpen] = useState<Trip | null>(null)
-  const locked = status === "Approved" || status === "Published"
+  const locked = !s.canOptimize
   const cust = (did: string) => ctx.customers[ctx.deliveries[did].customerId]
   const set = <K extends keyof PlanParams>(k: K, v: PlanParams[K]) => setParams({ ...params, [k]: v })
   const violTotal = plan?.trips.reduce((a, t) => a + t.violations.length, 0) ?? 0
 
   const trips = plan?.trips ?? []
+  const allocated = new Set(trips.map((trip) => trip.vehicleId))
   const bySp = [...new Set(trips.map((t) => t.sp))]
 
   return (
     <>
       <PageHeader
+        photo="planning"
         title="Planning workbench"
-        desc="Run the optimizer, review explanations for every assignment and unplanned load, adjust manually, then approve and publish."
-        reqs="Consolidation, vehicle selection, routing, splitting, thresholds, manual edits, approval & publishing"
+        desc="Run the optimizer on sample data, review trips and unplanned loads, then try the demo approval and publishing flow."
         actions={<>
-          {status === "Draft" && <Button variant="outline" onClick={() => { s.submit(); toast.success("Submitted for supervisor approval") }}><Send /> Submit for approval</Button>}
-          {status === "Pending approval" && <Button onClick={() => { s.approve(); toast.success("Plan approved") }}><BadgeCheck /> Approve (Supervisor)</Button>}
-          {status === "Approved" && <Button onClick={() => { s.publish(); toast.success("Plan published to SAP", { description: `${plan?.trips.length} shipments created` }) }}><Rocket /> Publish to SAP</Button>}
+          {status === "Draft" && <Button variant="outline" disabled={!!s.reviewBlocker} onClick={() => { s.submit(); toast.success("Submitted for demo approval") }}><Send /> Submit for approval</Button>}
+          {status === "Pending approval" && <Button disabled={!!s.reviewBlocker} onClick={() => { s.approve(); toast.success("Plan approved") }}><BadgeCheck /> Approve demo plan</Button>}
+          {status === "Approved" && <Button disabled={!!s.reviewBlocker} onClick={() => { s.publish(); toast.success("Publishing simulated") }}><Rocket /> Simulate publish</Button>}
           {(status === "Approved" || status === "Published" || status === "Pending approval") && <Button variant="ghost" onClick={s.reopen}><Undo2 /> Reopen</Button>}
         </>}
       />
 
-      <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
+      {plan && s.reviewBlocker && status !== "Published" && <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">{s.reviewBlocker}</p>}
+
+      <div className="grid gap-4 xl:grid-cols-[300px_1fr]">
         {/* Parameters */}
         <Card className="h-fit xl:sticky xl:top-4">
           <CardHeader><CardTitle>Run parameters</CardTitle><CardDescription>Rules {s.rulesVersion}. Try changes and compare in Scenarios.</CardDescription></CardHeader>
@@ -71,13 +73,13 @@ export default function Planning() {
                 <Kpi label="Trips" value={kpis.trips} sub={`${kpis.companyTrips} company · ${kpis.marketTrips} market`} />
                 <Kpi label="Total cost" value={inrK(kpis.cost)} sub={`${inr(kpis.costPerTon)}/T`} />
                 <Kpi label="Avg utilisation" value={`${Math.round(kpis.avgUtil * 100)}%`} tone={kpis.avgUtil > 0.75 ? "good" : "warn"} />
-                <Kpi label="Planned" value={`${(kpis.weightKg / 1000).toFixed(0)} T`} sub={`${kpis.plannedDeliveries} deliveries`} />
+                <Kpi label="Planned" value={`${(kpis.weightKg / 1000).toFixed(0)} T`} sub={`${kpis.plannedDeliveries} fully planned deliveries`} />
                 <Kpi label="Unplanned" value={kpis.unplannedLoads} sub={`${(kpis.unplannedKg / 1000).toFixed(1)} T`} tone={kpis.unplannedLoads ? "warn" : "good"} />
                 <Kpi label="Rule violations" value={violTotal} tone={violTotal ? "bad" : "good"} sub={violTotal ? "from manual edits" : "none"} />
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <Tag tone={status === "Published" ? "green" : status === "Draft" ? "amber" : "blue"}>{status}</Tag>
-                <span>{plan.id} · reproducible: input snapshot + rules {plan.rulesVersion} retained · {plan.excluded.length} deliveries excluded before planning</span>
+                <span>{plan.id} · base rules {plan.rulesVersion} · {plan.excluded.length} deliveries excluded before planning</span>
               </div>
 
               <Tabs defaultValue="trips">
@@ -94,7 +96,7 @@ export default function Planning() {
                           return (
                             <Card key={t.id} size="sm" className={cn(t.violations.length && "ring-red-500/50")}>
                               <CardContent>
-                                <button className="flex w-full items-center gap-3 text-left" onClick={() => setOpen({ ...open, [t.id]: !isOpen })}>
+                                <button className="flex w-full items-center gap-3 text-left" aria-expanded={!!isOpen} onClick={() => setOpen({ ...open, [t.id]: !isOpen })}>
                                   {isOpen ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
                                   <div className="min-w-0 flex-1">
                                     <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{t.id}</span><span className="text-sm font-medium">{v.type}</span><Tag tone={v.ownership === "Company" ? "blue" : "amber"}>{v.ownership}</Tag><span className="text-xs text-muted-foreground">{v.reg}</span>{t.violations.length > 0 && <Tag tone="red"><AlertTriangle className="size-3" />{t.violations.length} violation</Tag>}</div>
@@ -133,7 +135,7 @@ export default function Planning() {
                                     <div>
                                       <div className="mb-2 text-xs font-medium text-muted-foreground">WHY THIS PLAN</div>
                                       <ul className="mb-3 space-y-1 text-xs">{t.rationale.map((r) => <li key={r} className="flex gap-1.5"><CircleCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />{r}</li>)}</ul>
-                                      <div className="mb-1 text-xs font-medium text-muted-foreground">VEHICLES CONSIDERED</div>
+                                      {t.considered.length > 0 && <div className="mb-1 text-xs font-medium text-muted-foreground">VEHICLES CONSIDERED</div>}
                                       <div className="space-y-1">
                                         {t.considered.map((c) => (
                                           <div key={c.vehicleId} className={cn("rounded-md border px-2 py-1 text-xs", c.outcome === "selected" && "border-emerald-500/50 bg-emerald-500/5")}>
@@ -184,7 +186,7 @@ export default function Planning() {
       {/* Move delivery dialog */}
       <Dialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Move delivery {edit?.stop.deliveryId}</DialogTitle><DialogDescription>Choose a destination trip. Rule violations are flagged, not blocked – the change is audited.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Move delivery {edit?.stop.deliveryId}</DialogTitle><DialogDescription>Choose a destination trip. Moves are recorded. Resolve trip warnings before sending the plan for approval.</DialogDescription></DialogHeader>
           <div className="max-h-80 space-y-1 overflow-y-auto">
             {edit && plan && trips.filter((t) => t.id !== edit.from && t.sp === (ctx.deliveries[edit.stop.deliveryId].shippingPoint)).map((t) => (
               <button key={t.id} className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { s.moveStop(edit.stop, edit.from, t.id); setEdit(null); toast.success(`Moved to ${t.id}`, { description: "Trip re-evaluated – check for violations" }) }}>
@@ -199,10 +201,10 @@ export default function Planning() {
       {/* Change vehicle dialog */}
       <Dialog open={!!vehOpen} onOpenChange={(o) => !o && setVehOpen(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Change vehicle for {vehOpen?.id}</DialogTitle><DialogDescription>Only vehicles at {vehOpen?.sp} are shown.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Change vehicle for {vehOpen?.id}</DialogTitle><DialogDescription>Choose an available, unallocated vehicle at {vehOpen?.sp}.</DialogDescription></DialogHeader>
           <div className="max-h-80 space-y-1 overflow-y-auto">
-            {vehOpen && s.vehicles.filter((v) => v.location === vehOpen.sp && v.status === "Available" && v.id !== vehOpen.vehicleId).map((v) => (
-              <button key={v.id} className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { const r = s.reassignVehicle(vehOpen.id, v.id); setVehOpen(null); r ? toast.warning("Vehicle changed with violations", { description: r }) : toast.success("Vehicle changed") }}>
+            {vehOpen && s.vehicles.filter((v) => v.location === vehOpen.sp && v.status === "Available" && !allocated.has(v.id)).map((v) => (
+              <button key={v.id} className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { const r = s.reassignVehicle(vehOpen.id, v.id); setVehOpen(null); if (r) toast.warning("Review the vehicle change", { description: r }); else toast.success("Vehicle changed") }}>
                 <span>{vehicleLabel(v)}</span>
               </button>
             ))}
@@ -220,5 +222,5 @@ function Num({ label, v, on, step = 1 }: { label: string; v: number; on: (n: num
   return <label className="block"><span className="text-xs text-muted-foreground">{label}</span><Input type="number" step={step} value={v} onChange={(e) => on(Number(e.target.value))} className="mt-1" /></label>
 }
 function Tog({ label, v, on }: { label: string; v: boolean; on: (b: boolean) => void }) {
-  return <div className="flex items-center justify-between"><span className="text-sm">{label}</span><Switch checked={v} onCheckedChange={on} /></div>
+  return <label className="flex items-center justify-between gap-2"><span className="text-sm">{label}</span><Switch checked={v} onCheckedChange={on} /></label>
 }
